@@ -10,6 +10,8 @@
     "dev": "tsx src/cli.ts",
     "download": "tsx src/cli.ts",
     "build": "rolldown",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
     "pub": "pnpm build && pnpm publish --access public"
   },
   "keywords": [
@@ -42,13 +44,12 @@
     "prettier-plugin-organize-imports": "^4.1.0",
     "react": "^19.1.0",
     "rolldown": "1.0.0-beta.28",
+    "tar": "^7.1.0",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
     "unconfig": "^0.3.11",
+    "unzipper": "^0.12.1",
+    "vitest": "^3.2.4",
     "yargs": "^18.0.0"
-  },
-  "dependencies": {
-    "tar": "^7.1.0",
-    "unzipper": "^0.12.1"
   }
 }
