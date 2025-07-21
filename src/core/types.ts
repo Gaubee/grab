@@ -1,5 +1,3 @@
-import { promises as fs } from "node:fs";
-
 /**
  * 下载过程中的状态，用于 Emitter 向外报告进度。
  */
@@ -79,13 +77,8 @@ export type AssetPlugin = (context: PluginContext) => Promise<void>;
  */
 export interface LifecycleHooks {
   onTagFetched?: (tag: string) => Promise<void> | void;
-  getAssetCache?: (
-    asset: Asset,
-  ) => Promise<{ etag?: string } | undefined> | { etag?: string } | undefined;
-  setAssetCache?: (
-    asset: Asset,
-    cache: { etag: string },
-  ) => Promise<void> | void;
+  getAssetCache?: (asset: Asset) => Promise<{ etag?: string } | undefined> | { etag?: string } | undefined;
+  setAssetCache?: (asset: Asset, cache: { etag: string }) => Promise<void> | void;
   onAssetDownloadComplete?: (asset: ResolvedAsset) => Promise<void> | void;
   onAllComplete?: () => Promise<void> | void;
 }
@@ -101,4 +94,5 @@ export interface DownloadOptions {
   skipDownload?: boolean;
   useProxy?: boolean;
   proxyUrl?: string;
+  cacheDir?: string;
 }
