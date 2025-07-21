@@ -12,7 +12,7 @@
     "A": "pnpm jixo jixo-A",
     "dev": "tsc --build --noEmit --watch",
     "download": "tsx src/cli.ts",
-    "build": "rolldown",
+    "build": "rolldown -c rolldown.config.ts",
     "test": "vitest",
     "test:watch": "vitest --watch",
     "pub": "pnpm build && pnpm publish --access public"
