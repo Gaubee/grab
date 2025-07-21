@@ -9,6 +9,27 @@ interface RenameOptions {
 }
 
 /**
+ * 安全地移动文件，处理跨设备（分区）移动的情况。
+ * @param source 源文件路径
+ * @param destination 目标文件路径
+ */
+async function moveFile(source: string, destination: string) {
+  try {
+    // 尝试快速重命名
+    await fs.rename(source, destination);
+  } catch (error: any) {
+    // 如果是跨设备错误，则回退到复制+删除
+    if (error.code === "EXDEV") {
+      await fs.copyFile(source, destination);
+      await fs.unlink(source);
+    } else {
+      // 重新抛出其他类型的错误
+      throw error;
+    }
+  }
+}
+
+/**
  * 创建一个 rename 插件。
  * 在临时解压目录中查找文件并将其移动到最终的 targetPath。
  * @param options -重命名选项，`from` 指的是解压后二进制文件的原始名称。
@@ -26,7 +47,9 @@ export const rename = (options: RenameOptions): AssetPlugin => {
     console.log(`[Plugin:rename] Moving ${foundPath} to ${asset.targetPath}`);
     // 确保目标目录存在
     await fs.mkdir(path.dirname(asset.targetPath), { recursive: true });
-    await fs.rename(foundPath, asset.targetPath);
+
+    // 使用新的安全移动函数
+    await moveFile(foundPath, asset.targetPath);
   };
 };
 
