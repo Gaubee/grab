@@ -79,14 +79,16 @@ const MainView = ({ doDownloadFunc, options }: MainViewProps) => {
     const aborter = new AbortController();
     let currentDownloadSize = 0;
     let currentTotalSize = 1;
+    let currentFilename = "";
 
     doDownloadFunc({
       ...options,
       signal: aborter.signal,
       emitter: (state: State) => {
         if (state.type === "start") {
-          setFilename(state.filename);
-          currentTotalSize = state.total > 0 ? state.total : 1; // Avoid division by zero
+          currentFilename = state.filename;
+          setFilename(currentFilename);
+          currentTotalSize = state.total > 0 ? state.total : 1;
           setTotal(currentTotalSize);
           currentDownloadSize = 0;
           setLoaded(currentDownloadSize);
@@ -94,15 +96,14 @@ const MainView = ({ doDownloadFunc, options }: MainViewProps) => {
           currentDownloadSize += state.chunkSize;
           setLoaded(currentDownloadSize);
           if (currentDownloadSize >= currentTotalSize) {
-            setDownloadedFiles((prev) => [...prev, state.filename]);
+            setDownloadedFiles((prev) => [...prev, currentFilename]);
           }
         } else if (state.type === "done") {
           setDone(true);
-          setTimeout(() => exit(), 500); // Delay exit to show final state
+          setTimeout(() => exit(), 500);
         }
       },
     }).catch((error) => {
-      // In case of error, exit gracefully
       console.error("\x1b[31m%s\x1b[0m", `\n[grab] Download failed: ${error.message}`);
       exit();
     });

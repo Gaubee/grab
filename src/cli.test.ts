@@ -1,24 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-// Mock an executable entry point for the CLI
-const mockMain = vi.fn();
-vi.mock("./cli", async (importOriginal) => {
-  const original = await importOriginal<any>();
-  return {
-    ...original,
-    main: mockMain, // We can't directly test the top-level main function, so we mock it.
-    // A better approach would be to export the main logic. For now, this is a placeholder.
-    // In a real scenario, we would refactor cli.ts to export its core logic.
-  };
-});
+import { run } from "./cli";
+import { loadConfig, type GrabConfig } from "./config";
+import { createDownloader } from "./core/factory";
+import { GithubReleaseProvider } from "./core/provider";
+import fetchRender from "./render";
 
 // Mock dependent modules
 vi.mock("./config", () => ({
   loadConfig: vi.fn(),
 }));
-vi.mock("./core/provider", () => ({
-  GithubReleaseProvider: vi.fn(),
-}));
+vi.mock("./core/provider");
 vi.mock("./core/factory", () => ({
   createDownloader: vi.fn(),
 }));
@@ -26,22 +17,8 @@ vi.mock("./render", () => ({
   default: vi.fn(),
 }));
 
-import type { GrabConfig } from "./config";
-import { loadConfig } from "./config";
-import { createDownloader } from "./core/factory";
-import { GithubReleaseProvider } from "./core/provider";
-import fetchRender from "./render";
-
-// This is a helper to run the CLI logic in a controlled environment.
-// In a real project, we would refactor cli.ts to export this main logic.
-async function runCli(argv: string[]) {
-  process.argv = ["node", "grab", ...argv];
-  // Since the actual cli.ts runs on import, we re-import it to trigger the logic
-  await import("./cli");
-}
-
 describe("CLI Integration", () => {
-  const mockDoDownload = vi.fn();
+  const mockDoDownload = vi.fn().mockResolvedValue(void 0); // Ensure it returns a promise
   const mockHooks = { onAllComplete: vi.fn() };
   const mockBaseConfig: GrabConfig = {
     repo: "owner/repo",
@@ -52,7 +29,6 @@ describe("CLI Integration", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Setup default mocks for a successful run
     vi.mocked(loadConfig).mockResolvedValue(mockBaseConfig);
     vi.mocked(createDownloader).mockReturnValue(mockDoDownload);
     vi.mocked(GithubReleaseProvider).mockImplementation(function (this: any, repo: string) {
@@ -61,8 +37,13 @@ describe("CLI Integration", () => {
     } as any);
   });
 
+  const runCliWithArgs = (args: string[]) => {
+    const argv = ["/usr/bin/node", "/path/to/cli.js", ...args];
+    return run(argv);
+  };
+
   it("should use tag from config when no cli arg is provided", async () => {
-    await runCli([]);
+    await runCliWithArgs([]);
 
     expect(createDownloader).toHaveBeenCalledWith(
       expect.any(GithubReleaseProvider),
@@ -78,7 +59,7 @@ describe("CLI Integration", () => {
   });
 
   it("should use tag from cli args to override config", async () => {
-    await runCli(["--tag", "cli-tag"]);
+    await runCliWithArgs(["--tag", "cli-tag"]);
 
     expect(mockDoDownload).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -88,21 +69,22 @@ describe("CLI Integration", () => {
   });
 
   it("should call fetchRender in interactive mode", async () => {
-    await runCli(["--interactive"]);
+    await runCliWithArgs(["--interactive"]);
 
     expect(fetchRender).toHaveBeenCalledWith(mockDoDownload, expect.any(Object));
-    expect(mockDoDownload).not.toHaveBeenCalled(); // The actual call is inside render
+    // In interactive mode, the download is initiated by the render component, not awaited directly
+    expect(mockDoDownload).not.toHaveBeenCalled();
   });
 
   it("should call doDownload directly in non-interactive mode", async () => {
-    await runCli([]);
+    await runCliWithArgs([]);
 
     expect(mockDoDownload).toHaveBeenCalled();
     expect(fetchRender).not.toHaveBeenCalled();
   });
 
   it("should correctly pass hooks from config to the downloader", async () => {
-    await runCli([]);
+    await runCliWithArgs([]);
 
     expect(createDownloader).toHaveBeenCalledWith(
       expect.any(GithubReleaseProvider),

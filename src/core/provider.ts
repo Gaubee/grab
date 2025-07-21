@@ -1,4 +1,4 @@
-import { Asset, ResolvedAsset } from "../types";
+import { Asset, ResolvedAsset } from "./types";
 
 /**
  * ReleaseProvider 定义了与版本发布源（如 GitHub Release）交互的接口。
@@ -77,9 +77,7 @@ export class GithubReleaseProvider implements ReleaseProvider {
     const res = await fetch(url);
 
     if (!res.ok) {
-      throw new Error(
-        `Failed to fetch release info for tag "${tag}" from repo "${this.repo}": ${res.statusText}`,
-      );
+      throw new Error(`Failed to fetch release info for tag "${tag}" from repo "${this.repo}": ${res.statusText}`);
     }
 
     const data = await res.json();

@@ -8,12 +8,13 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "types": [
-      "node"
+      "node",
+      "vitest/globals"
     ],
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "strict": true,
-    "verbatimModuleSyntax": true,
-    "skipLibCheck": true,
+    "verbatimModuleSyntax": false,
+    "skipLibCheck": true
   }
 }

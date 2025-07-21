@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { GithubReleaseProvider } from "./provider";
 import { Asset } from "./types";
 
@@ -13,7 +13,7 @@ const mockReleaseResponse = {
 };
 
 describe("GithubReleaseProvider", () => {
-  let fetchSpy: vi.SpyInstance;
+  let fetchSpy: MockInstance<typeof fetch>;
 
   beforeEach(() => {
     // Spy on global fetch before each test

@@ -1,12 +1,14 @@
 import { createReadStream } from "node:fs";
-import tar from "tar";
+import * as tar from "tar";
 import unzipper from "unzipper";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PluginContext } from "../core/types";
 import { unzip } from "./unzip";
 
 // Mock 依赖库和 node:fs
-vi.mock("tar");
+vi.mock("tar", () => ({
+  x: vi.fn(), // 确保 tar.x 是一个 mock function
+}));
 vi.mock("unzipper");
 vi.mock("node:fs", () => ({
   createReadStream: vi.fn(),
@@ -16,17 +18,15 @@ describe("unzip Plugin", () => {
   let mockContext: PluginContext;
 
   beforeEach(() => {
-    // 为每个测试重置 mock
     vi.clearAllMocks();
 
     mockContext = {
       tag: "v1.0.0",
       downloadedFilePath: "",
       tempDir: "/tmp/test-unzip",
-      asset: {} as any, // 在此测试中不需要
+      asset: {} as any,
     };
 
-    // 默认的 mock 实现
     const mockStream = { pipe: vi.fn().mockReturnThis(), on: vi.fn((event, cb) => (event === "finish" ? cb() : null)) };
     vi.mocked(createReadStream).mockReturnValue(mockStream as any);
     vi.mocked(unzipper.Extract).mockReturnValue({} as any);

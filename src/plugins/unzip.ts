@@ -1,6 +1,5 @@
 import { createReadStream } from "node:fs";
-import path from "node:path";
-import tar from "tar";
+import * as tar from "tar";
 import unzipper from "unzipper";
 import { AssetPlugin } from "../core/types";
 
@@ -14,9 +13,7 @@ export const unzip = (): AssetPlugin => {
     console.log(`[Plugin:unzip] Unpacking ${downloadedFilePath} to ${tempDir}`);
 
     if (downloadedFilePath.endsWith(".zip")) {
-      const stream = createReadStream(downloadedFilePath).pipe(
-        unzipper.Extract({ path: tempDir }),
-      );
+      const stream = createReadStream(downloadedFilePath).pipe(unzipper.Extract({ path: tempDir }));
       await new Promise((resolve, reject) => {
         stream.on("finish", resolve);
         stream.on("error", reject);
@@ -27,9 +24,7 @@ export const unzip = (): AssetPlugin => {
         cwd: tempDir,
       });
     } else {
-      console.warn(
-        `[Plugin:unzip] Unsupported file type for ${downloadedFilePath}. Skipping.`,
-      );
+      console.warn(`[Plugin:unzip] Unsupported file type for ${downloadedFilePath}. Skipping.`);
     }
   };
 };

@@ -1,3 +1,4 @@
+import { normalizeFilePath } from "@gaubee/nodekit";
 import { promises as fs } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PluginContext, ResolvedAsset } from "../core/types";
@@ -25,9 +26,9 @@ describe("rename Plugin", () => {
     mockContext = {
       tag: "v1.0.0",
       downloadedFilePath: "",
-      tempDir: "/tmp/test-rename",
+      tempDir: normalizeFilePath("/tmp/test-rename"),
       asset: {
-        targetPath: "/dest/binary.exe",
+        targetPath: normalizeFilePath("/dest/binary.exe"),
       } as ResolvedAsset,
     };
   });
@@ -38,7 +39,10 @@ describe("rename Plugin", () => {
 
     await rename({ from: "binary.exe" })(mockContext);
 
-    expect(fs.rename).toHaveBeenCalledWith("/tmp/test-rename/binary.exe", "/dest/binary.exe");
+    expect(fs.rename).toHaveBeenCalledWith(
+      normalizeFilePath("/tmp/test-rename/binary.exe"),
+      normalizeFilePath("/dest/binary.exe"),
+    );
   });
 
   it("should find and rename the file in a subdirectory", async () => {
@@ -50,9 +54,15 @@ describe("rename Plugin", () => {
 
     await rename({ from: "binary.exe" })(mockContext);
 
-    expect(fs.readdir).toHaveBeenCalledWith("/tmp/test-rename", { withFileTypes: true });
-    expect(fs.readdir).toHaveBeenCalledWith("/tmp/test-rename/sub", { withFileTypes: true });
-    expect(fs.rename).toHaveBeenCalledWith("/tmp/test-rename/sub/binary.exe", "/dest/binary.exe");
+    const tempDir = normalizeFilePath("/tmp/test-rename");
+    const subDir = normalizeFilePath("/tmp/test-rename/sub");
+
+    expect(fs.readdir).toHaveBeenCalledWith(tempDir, { withFileTypes: true });
+    expect(fs.readdir).toHaveBeenCalledWith(subDir, { withFileTypes: true });
+    expect(fs.rename).toHaveBeenCalledWith(
+      normalizeFilePath("/tmp/test-rename/sub/binary.exe"),
+      normalizeFilePath("/dest/binary.exe"),
+    );
   });
 
   it("should throw an error if the file is not found", async () => {
@@ -60,7 +70,9 @@ describe("rename Plugin", () => {
 
     const promise = rename({ from: "nonexistent.exe" })(mockContext);
 
-    await expect(promise).rejects.toThrow("[Plugin:rename] Could not find 'nonexistent.exe' in /tmp/test-rename");
+    await expect(promise).rejects.toThrow(
+      `[Plugin:rename] Could not find 'nonexistent.exe' in ${normalizeFilePath("/tmp/test-rename")}`,
+    );
     expect(fs.rename).not.toHaveBeenCalled();
   });
 
@@ -70,6 +82,6 @@ describe("rename Plugin", () => {
 
     await rename({ from: "binary.exe" })(mockContext);
 
-    expect(fs.mkdir).toHaveBeenCalledWith("/dest", { recursive: true });
+    expect(fs.mkdir).toHaveBeenCalledWith(normalizeFilePath("/dest"), { recursive: true });
   });
 });

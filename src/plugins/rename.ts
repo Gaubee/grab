@@ -1,3 +1,4 @@
+import { normalizeFilePath } from "@gaubee/nodekit";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { AssetPlugin } from "../core/types";
@@ -15,15 +16,11 @@ interface RenameOptions {
 export const rename = (options: RenameOptions): AssetPlugin => {
   return async (context) => {
     const { tempDir, asset } = context;
-    console.log(
-      `[Plugin:rename] Searching for '${options.from}' in ${tempDir}`,
-    );
+    console.log(`[Plugin:rename] Searching for '${options.from}' in ${tempDir}`);
 
     const foundPath = await findFile(tempDir, options.from);
     if (!foundPath) {
-      throw new Error(
-        `[Plugin:rename] Could not find '${options.from}' in ${tempDir}`,
-      );
+      throw new Error(`[Plugin:rename] Could not find '${options.from}' in ${tempDir}`);
     }
 
     console.log(`[Plugin:rename] Moving ${foundPath} to ${asset.targetPath}`);
@@ -37,7 +34,7 @@ export const rename = (options: RenameOptions): AssetPlugin => {
 async function findFile(dir: string, fileName: string): Promise<string | null> {
   const entries = await fs.readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
+    const fullPath = normalizeFilePath(path.join(dir, entry.name));
     if (entry.isDirectory()) {
       const result = await findFile(fullPath, fileName);
       if (result) return result;

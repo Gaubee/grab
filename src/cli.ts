@@ -5,12 +5,12 @@ import { createDownloader } from "./core/factory";
 import { GithubReleaseProvider } from "./core/provider";
 import fetchRender from "./render";
 
-async function main() {
+export async function run(argv: string[]) {
   // 1. 加载 grab.config.ts/js/json 文件
   const config = await loadConfig();
 
   // 2. 解析命令行参数，并与配置文件合并
-  const args = await yargs(hideBin(process.argv))
+  const args = await yargs(hideBin(argv))
     .option("tag", {
       type: "string",
       alias: "t",
@@ -55,11 +55,8 @@ async function main() {
   };
 
   if (args.interactive) {
-    // 交互模式，启动 TUI
     fetchRender(doDownload, options);
   } else {
-    // 非交互模式，直接在控制台执行
-    // 增加一个简单的 emitter 来模拟进度输出
     await doDownload({
       ...options,
       emitter: (state) => {
@@ -73,7 +70,10 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error("\x1b[31m%s\x1b[0m", `[grab] Error: ${error.message}`);
-  process.exit(1);
-});
+// 只有在直接执行此文件时才运行
+if (process.env.VITEST === undefined) {
+  run(process.argv).catch((error) => {
+    console.error("\x1b[31m%s\x1b[0m", `[grab] Error: ${error.message}`);
+    process.exit(1);
+  });
+}
