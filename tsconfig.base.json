@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "target": "esnext",
+    "lib": [
+      "ESNext"
+    ],
+    "jsx": "react",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": [
+      "node",
+      "vitest/globals"
+    ],
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "verbatimModuleSyntax": false,
+    "skipLibCheck": true
+  }
+}

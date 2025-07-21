@@ -1,5 +1,6 @@
 import { createConfigLoader } from "unconfig";
 import type { Asset, LifecycleHooks } from "./core/types";
+export type { Asset, LifecycleHooks };
 
 /**
  * 定义了 grab.config.ts 文件的结构。

@@ -1,20 +1,15 @@
 {
-  "compilerOptions": {
-    "target": "esnext",
-    "lib": [
-      "ESNext"
+    "references": [
+        {
+            "path": "./tsconfig.src.json"
+        },
+        {
+            "path": "./tsconfig.vitest.json"
+        }
     ],
-    "jsx": "react",
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "types": [
-      "node",
-      "vitest/globals"
-    ],
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "strict": true,
-    "verbatimModuleSyntax": false,
-    "skipLibCheck": true
-  }
+    "compilerOptions": {
+        "tsBuildInfoFile": "./node_modules/tsconfig.tsbuildinfo",
+    },
+    "exclude": [],
+    "include": []
 }

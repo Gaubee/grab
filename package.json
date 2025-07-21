@@ -10,9 +10,9 @@
     "jixo": "pnpm --package=@jixo/dev dlx",
     "G": "pnpm jixo jixo-G",
     "A": "pnpm jixo jixo-A",
-    "dev": "tsc --build --noEmit --watch",
+    "ts": "tsc --build --watch",
     "download": "tsx src/cli.ts",
-    "build": "rolldown -c rolldown.config.ts",
+    "build": "tsdown -c tsdown.config.ts",
     "test": "vitest",
     "test:watch": "vitest --watch",
     "pub": "pnpm build && pnpm publish --access public"
@@ -31,6 +31,14 @@
     "type": "git",
     "url": "git+https://github.com/gaubee/grab-sdk.git"
   },
+  "exports": {
+    ".": "./dist/index.js",
+    "./config": "./dist/config.js",
+    "./plugins": "./dist/plugins/index.js"
+  },
+  "dependencies": {
+    "unconfig": "^0.3.11"
+  },
   "devDependencies": {
     "@gaubee/nodekit": "^0.12.0",
     "@std/cli": "jsr:^1.0.20",
@@ -48,11 +56,11 @@
     "prettier": "^3.6.2",
     "prettier-plugin-organize-imports": "^4.1.0",
     "react": "^19.1.0",
-    "rolldown": "1.0.0-beta.28",
+    "react-devtools-core": "^6.1.5",
     "tar": "^7.1.0",
+    "tsdown": "^0.12.9",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
-    "unconfig": "^0.3.11",
     "unzipper": "^0.12.1",
     "vitest": "^3.2.4",
     "yargs": "^18.0.0"
