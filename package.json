@@ -1,23 +1,23 @@
 {
-  "private": true,
+  "private": false,
   "name": "@gaubee/grab",
   "version": "1.0.1",
   "type": "module",
-  "description": "",
-  "main": "index.js",
+  "description": "A declarative tool for downloading and processing assets from GitHub Releases.",
+  "main": "bundle/cli.js",
+  "bin": "bundle/cli.js",
   "scripts": {
-    "jixo": "pnpm --package=@jixo/dev dlx",
-    "G": "pnpm jixo jixo-G",
-    "A": "pnpm jixo jixo-A",
-    "dev": "tsx scripts/download-cli.ts",
-    "download": "tsx scripts/download-cli.ts",
-    "pub": "pnpm publish --access public -r"
+    "dev": "tsx src/cli.ts",
+    "download": "tsx src/cli.ts",
+    "build": "rolldown",
+    "pub": "pnpm build && pnpm publish --access public"
   },
   "keywords": [
     "github",
     "release",
     "download",
-    "binary"
+    "binary",
+    "cli"
   ],
   "packageManager": "pnpm@10.13.1",
   "author": "Gaubee",
@@ -44,6 +44,11 @@
     "rolldown": "1.0.0-beta.28",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
+    "unconfig": "^0.3.11",
     "yargs": "^18.0.0"
+  },
+  "dependencies": {
+    "tar": "^7.1.0",
+    "unzipper": "^0.12.1"
   }
 }
