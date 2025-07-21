@@ -23,6 +23,12 @@ export async function run(argv: string[]) {
       description: "Enable interactive TUI mode",
       default: false,
     })
+    .option("mode", {
+      type: "string",
+      alias: "m",
+      description: "the download mode",
+      default: "fetch",
+    })
     .option("skip-download", {
       type: "boolean",
       alias: "s",
@@ -51,7 +57,7 @@ export async function run(argv: string[]) {
     skipDownload: args.skipDownload,
     useProxy: args.useProxy,
     proxyUrl: args.proxyUrl,
-    mode: args.interactive ? ("fetch" as const) : ("wget" as const),
+    mode: args.interactive ? ("fetch" as const) : (args.mode as any),
   };
 
   if (args.interactive) {

@@ -1,4 +1,4 @@
-import { normalizeFilePath } from "@gaubee/nodekit";
+import { normalizeFilePath } from "@gaubee/node";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { AssetPlugin } from "../core/types";

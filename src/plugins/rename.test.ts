@@ -1,4 +1,4 @@
-import { normalizeFilePath } from "@gaubee/nodekit";
+import { normalizeFilePath } from "@gaubee/node";
 import { promises as fs } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PluginContext, ResolvedAsset } from "../core/types";
