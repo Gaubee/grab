@@ -1,0 +1,49 @@
+{
+  "private": true,
+  "name": "@gaubee/grab",
+  "version": "1.0.1",
+  "type": "module",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "jixo": "pnpm --package=@jixo/dev dlx",
+    "G": "pnpm jixo jixo-G",
+    "A": "pnpm jixo jixo-A",
+    "dev": "tsx scripts/download-cli.ts",
+    "download": "tsx scripts/download-cli.ts",
+    "pub": "pnpm publish --access public -r"
+  },
+  "keywords": [
+    "github",
+    "release",
+    "download",
+    "binary"
+  ],
+  "packageManager": "pnpm@10.13.1",
+  "author": "Gaubee",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gaubee/grab-sdk.git"
+  },
+  "devDependencies": {
+    "@gaubee/nodekit": "^0.12.0",
+    "@std/cli": "jsr:^1.0.20",
+    "@std/fmt": "jsr:^1.0.8",
+    "@types/byte-size": "^8.1.2",
+    "@types/node": "^24.0.7",
+    "@types/react": "^19.1.8",
+    "@types/yargs": "^17.0.32",
+    "byte-size": "^9.0.1",
+    "execa": "^9.6.0",
+    "ink": "^6.0.1",
+    "json5": "^2.2.3",
+    "prettier": "^3.6.2",
+    "prettier-plugin-organize-imports": "^4.1.0",
+    "react": "^19.1.0",
+    "rolldown": "1.0.0-beta.28",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "yargs": "^18.0.0"
+  }
+}

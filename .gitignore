@@ -1,0 +1,15 @@
+node_modules/
+data.ms/
+dumps/
+dist/
+pnpm-lock.yaml
+
+# binary files
+nats-server-linux-aarch64
+nats-server-macos-amd64
+nats-server-windows-amd64.exe
+nats-server-macos-apple-silicon
+nats-server-linux-amd64
+.DS_Store
+.*/
+tsconfig.tsbuildinfo
