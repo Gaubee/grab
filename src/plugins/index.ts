@@ -1,3 +1,3 @@
 export * from "./unzip";
-export * from "./rename";
+export * from "./copy";
 export * from "./clear";

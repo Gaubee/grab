@@ -19,29 +19,40 @@ export type State =
  * 用户定义的抽象资源。
  */
 export interface Asset {
-  platform: string;
-  arch: string;
-  format: "zip" | "tar.gz";
-  targetPath: string;
+  /** 资源名称，可以是全称，也可以是一些关键词的组合，比如 name:['macos','amr64'] */
+  name: string | string[];
+  /** 自定义插件 */
   plugins?: AssetPlugin[];
+  /**
+   * 目标路径，如果配置了，等价于启用rename插件
+   * 如果需要比较复杂的逻辑，请直接使用rename插件
+   */
+  targetPath?: string;
 }
 
 /**
  * 由 ReleaseProvider 解析后的具体资源。
  */
 export interface ResolvedAsset extends Asset {
+  /** 原始文件名 */
   fileName: string;
+  /** 下载链接 */
   downloadUrl: string;
+  /** hash 信息 */
+  digest: string;
+}
+export interface DownloadAsset extends ResolvedAsset {
+  /** 下载目录路径 */
+  downloadDirname: string;
+  /** 下载文件路径 */
+  downloadedFilePath: string;
 }
 
 /**
  * 插件执行时可用的上下文信息。
  */
-export interface PluginContext {
+export interface PluginContext extends DownloadAsset {
   tag: string;
-  downloadedFilePath: string;
-  tempDir: string;
-  asset: ResolvedAsset;
 }
 
 /**
@@ -54,20 +65,19 @@ export type AssetPlugin = (context: PluginContext) => Promise<void>;
  */
 export interface LifecycleHooks {
   onTagFetched?: (tag: string) => Promise<void> | void;
-  getAssetCache?: (asset: Asset) => Promise<{ etag?: string } | undefined> | { etag?: string } | undefined;
-  setAssetCache?: (asset: Asset, cache: { etag: string }) => Promise<void> | void;
-  onAssetDownloadComplete?: (asset: ResolvedAsset) => Promise<void> | void;
+  getAssetCache?: (asset: DownloadAsset) => Promise<{ etag?: string } | undefined> | { etag?: string } | undefined;
+  setAssetCache?: (asset: DownloadAsset, cache: { etag: string }) => Promise<void> | void;
+  onAssetDownloadComplete?: (asset: DownloadAsset) => Promise<void> | void;
   onAllComplete?: () => Promise<void> | void;
 }
 
 /**
  * 自定义下载函数的配置对象。
  */
-export interface CustomDownloaderConfig {
-  downloadUrl: string;
-  targetPath: string;
-  asset: ResolvedAsset;
+export interface CustomDownloaderConfig extends DownloadAsset {
   hooks: LifecycleHooks;
+  emitter?: (state: State) => void;
+  signal?: AbortSignal;
 }
 
 /**
@@ -94,7 +104,7 @@ export interface DownloadOptions {
   tag?: string;
   skipDownload?: boolean;
   useProxy?: boolean;
-  proxyUrl?: string;
+  proxyUrl?: string | ((originUrl: string) => string);
   cacheDir?: string;
   /**
    * 下载策略模式。

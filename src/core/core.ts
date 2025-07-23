@@ -1,9 +1,8 @@
+import { obj_pick } from "@gaubee/util";
 import { $, execa } from "execa";
 import { createWriteStream, mkdirSync, statSync } from "node:fs";
-import path from "node:path";
 import { Writable } from "node:stream";
-import type { CustomDownloaderConfig, DownloadOptions, LifecycleHooks, ResolvedAsset } from "./types";
-
+import type { CustomDownloaderConfig, DownloadAsset, DownloadOptions, LifecycleHooks } from "./types";
 /**
  * 智能地检查外部命令是否存在，并能特殊处理 Windows 下的 wget 别名问题。
  * @param command - 要检查的命令 (e.g., 'wget')。
@@ -40,17 +39,11 @@ async function checkWin32Command(command: string): Promise<boolean | "alias"> {
 /**
  * 下载单个指定的资源文件，根据 mode 选择不同的下载策略。
  */
-export const downloadAsset = async (
-  asset: ResolvedAsset,
-  downloadUrl: string,
-  options: DownloadOptions,
-  hooks: LifecycleHooks,
-) => {
+export const downloadAsset = async (asset: DownloadAsset, options: DownloadOptions, hooks: LifecycleHooks) => {
   const { emitter, signal, skipDownload = false, mode = "fetch" } = options;
-  const { targetPath } = asset; // 临时下载路径
+  const { downloadUrl, downloadedFilePath, downloadDirname } = asset; // 临时下载路径
 
-  const outdir = path.dirname(targetPath);
-  mkdirSync(outdir, { recursive: true });
+  mkdirSync(downloadDirname, { recursive: true });
 
   if (skipDownload) {
     emitter?.({ type: "start", filename: asset.fileName, total: -1 });
@@ -58,7 +51,7 @@ export const downloadAsset = async (
   }
 
   if (typeof mode === "function") {
-    const customConfig: CustomDownloaderConfig = { downloadUrl, targetPath, asset, hooks };
+    const customConfig: CustomDownloaderConfig = { ...asset, ...obj_pick(options, "emitter", "signal"), hooks };
     await mode(customConfig);
     return;
   }
@@ -68,10 +61,10 @@ export const downloadAsset = async (
     const headers = new Headers();
     let existingLength = 0;
     try {
-      const stats = statSync(targetPath);
+      const stats = statSync(downloadedFilePath);
       existingLength = stats.size;
       headers.set("Range", `bytes=${existingLength}-`);
-    } catch (error) {}
+    } catch {}
     if (cache.etag) {
       headers.set("If-None-Match", cache.etag);
     }
@@ -122,7 +115,7 @@ export const downloadAsset = async (
             },
           }),
         )
-        .pipeTo(Writable.toWeb(createWriteStream(targetPath, writeStreamOptions)));
+        .pipeTo(Writable.toWeb(createWriteStream(downloadedFilePath, writeStreamOptions)));
     }
     return;
   }
@@ -162,10 +155,10 @@ export const downloadAsset = async (
 
   const commandArgs = commandTemplate
     .slice(1)
-    .map((arg) => arg.replace(/\$DOWNLOAD_URL/g, downloadUrl).replace(/\$DOWNLOAD_FILE/g, targetPath));
+    .map((arg) => arg.replace(/\$DOWNLOAD_URL/g, downloadUrl).replace(/\$DOWNLOAD_FILE/g, downloadedFilePath));
 
   emitter?.({ type: "start", filename: asset.fileName, total: 0 });
   await $(executable, commandArgs, { stdio: "inherit" });
-  const stats = statSync(targetPath);
+  const stats = statSync(downloadedFilePath);
   emitter?.({ type: "progress", chunkSize: stats.size });
 };

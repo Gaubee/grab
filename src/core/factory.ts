@@ -1,17 +1,17 @@
-import fs, { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { copy } from "../plugins";
 import { downloadAsset } from "./core";
 import type { ReleaseProvider } from "./provider";
-import type { Asset, DownloadOptions, LifecycleHooks, PluginContext, ResolvedAsset } from "./types";
+import type { Asset, DownloadAsset, DownloadOptions, LifecycleHooks, PluginContext } from "./types";
 
-async function runPlugins(asset: ResolvedAsset, tag: string, downloadedFilePath: string) {
+async function runPlugins(asset: DownloadAsset, tag: string) {
+  // 如果没有插件，但下载路径和目标路径不同，需要手动移动
+  if (asset.targetPath) {
+    asset.plugins?.push(copy({ targetPath: asset.targetPath }));
+  }
   if (!asset.plugins || asset.plugins.length === 0) {
-    // 如果没有插件，但下载路径和目标路径不同，需要手动移动
-    if (downloadedFilePath !== asset.targetPath) {
-      mkdirSync(path.dirname(asset.targetPath), { recursive: true });
-      await fs.promises.rename(downloadedFilePath, asset.targetPath);
-    }
     return;
   }
 
@@ -20,9 +20,7 @@ async function runPlugins(asset: ResolvedAsset, tag: string, downloadedFilePath:
 
   const context: PluginContext = {
     tag,
-    asset,
-    downloadedFilePath,
-    tempDir,
+    ...asset,
   };
 
   try {
@@ -44,7 +42,7 @@ async function runPlugins(asset: ResolvedAsset, tag: string, downloadedFilePath:
  */
 export const createDownloader = (provider: ReleaseProvider, assets: Asset[], hooks: LifecycleHooks = {}) => {
   const doDownload = async (options: DownloadOptions = {}) => {
-    const { emitter, useProxy = true, proxyUrl = "https://ghfast.top/", skipDownload = false } = options;
+    const { emitter, useProxy = true, proxyUrl = "https://ghfast.top/%s", skipDownload = false } = options;
 
     let tag = options.tag;
 
@@ -65,19 +63,30 @@ export const createDownloader = (provider: ReleaseProvider, assets: Asset[], hoo
 
     // 2. 循环下载所有已解析的资源
     for (const asset of resolvedAssets) {
-      const downloadUrl = useProxy ? proxyUrl + asset.downloadUrl : asset.downloadUrl;
+      const getProxyUrl = () => {
+        return typeof proxyUrl === "string"
+          ? proxyUrl.replaceAll("%s", asset.downloadUrl)
+          : typeof proxyUrl === "function"
+            ? proxyUrl(asset.downloadUrl)
+            : asset.downloadUrl;
+      };
+      const downloadUrl = useProxy ? getProxyUrl() : asset.downloadUrl;
 
       // 所有文件都先下载到统一的缓存目录
-      const downloadedFilePath = path.join(downloadCacheDir, asset.fileName);
+      const downloadDirname = path.join(downloadCacheDir, asset.digest.split(":").at(-1)!.slice(0, 8));
 
-      await downloadAsset({ ...asset, targetPath: downloadedFilePath }, downloadUrl, options, hooks);
+      const downloadedFilePath = path.join(downloadDirname, asset.fileName);
+
+      const asset2: DownloadAsset = { ...asset, downloadDirname, downloadedFilePath, downloadUrl };
+
+      await downloadAsset(asset2, options, hooks);
 
       // 3. 下载后执行插件系统
       if (!skipDownload) {
-        await runPlugins(asset, tag, downloadedFilePath);
+        await runPlugins(asset2, tag);
       }
 
-      await hooks.onAssetDownloadComplete?.(asset);
+      await hooks.onAssetDownloadComplete?.(asset2);
     }
 
     emitter?.({ type: "done" });

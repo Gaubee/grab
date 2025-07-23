@@ -1,7 +1,7 @@
 {
   "private": false,
   "name": "@gaubee/grab",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "type": "module",
   "description": "A declarative tool for downloading and processing assets from GitHub Releases.",
   "main": "bundle/cli.js",
@@ -10,7 +10,7 @@
     "jixo": "pnpm --package=@jixo/dev dlx",
     "G": "pnpm jixo jixo-G",
     "A": "pnpm jixo jixo-A",
-    "ts": "tsc --build --watch",
+    "ts": "tsc --build --watch --noEmit",
     "download": "tsx src/cli.ts",
     "build": "tsdown -c tsdown.config.ts",
     "test": "vitest",
@@ -36,12 +36,13 @@
     "url": "git+https://github.com/gaubee/grab-sdk.git"
   },
   "exports": {
-    ".": "./dist/index.js",
-    "./config": "./dist/config.js",
-    "./plugins": "./dist/plugins/index.js"
+    ".": "./bundle/index.js",
+    "./config": "./bundle/config.js",
+    "./plugins": "./bundle/plugins/index.js"
   },
   "dependencies": {
     "@gaubee/node": "^0.3.0",
+    "@gaubee/util": "^0.34.2",
     "tar": "^7.1.0",
     "unconfig": "^0.3.11",
     "unzipper": "^0.12.1"
