@@ -42,7 +42,13 @@ async function runPlugins(asset: DownloadAsset, tag: string) {
  */
 export const createDownloader = (provider: ReleaseProvider, assets: Asset[], hooks: LifecycleHooks = {}) => {
   const doDownload = async (options: DownloadOptions = {}) => {
-    const { emitter, useProxy = true, proxyUrl = "https://ghfast.top/{{href}}", skipDownload = false } = options;
+    const {
+      emitter,
+      useProxy = true,
+      proxyUrl = "https://ghfast.top/{{href}}",
+      skipDownload = false,
+      concurrency = 4,
+    } = options;
 
     let tag = options.tag;
 
@@ -61,10 +67,27 @@ export const createDownloader = (provider: ReleaseProvider, assets: Asset[], hoo
     const downloadCacheDir = path.resolve(process.cwd(), options.cacheDir ?? "node_modules/.cache/grab");
     mkdirSync(downloadCacheDir, { recursive: true });
 
-    // 2. 循环下载所有已解析的资源
+    // 2. 并发下载所有已解析的资源
+    const downloadQueue = [...resolvedAssets];
     for (const asset of resolvedAssets) {
+      emitter?.({
+        status: "pending",
+        filename: asset.fileName,
+        url: asset.downloadUrl,
+        total: 0,
+        loaded: 0,
+      });
+    }
+
+    const processAsset = async (asset: DownloadAsset) => {
       const getProxyUrl = () => {
         if (typeof proxyUrl === "string") {
+          if (!/\{\{.*\}\}/.test(proxyUrl)) {
+            console.warn(
+              `[grab] Warning: proxy-url "${proxyUrl}" does not seem to be a valid template. Expected a template like "https://my.proxy/{{href}}". Disabling proxy for this download.`,
+            );
+            return asset.downloadUrl;
+          }
           const downloadUrl = new URL(asset.downloadUrl);
           return proxyUrl.replace(/\{\{(\w+)\}\}/g, (_, key) => Reflect.get(downloadUrl, key) ?? _);
         }
@@ -75,38 +98,72 @@ export const createDownloader = (provider: ReleaseProvider, assets: Asset[], hoo
       };
       const downloadUrl = useProxy ? getProxyUrl() : asset.downloadUrl;
 
-      // 所有文件都先下载到统一的缓存目录
       const downloadDirname = path.join(downloadCacheDir, asset.digest.split(":").at(-1)!.slice(0, 8));
-
       const downloadedFilePath = path.join(downloadDirname, asset.fileName);
-
       const asset2: DownloadAsset = { ...asset, downloadDirname, downloadedFilePath, downloadUrl };
 
       if (skipDownload) {
-        options.emitter?.({ type: "start", filename: asset.fileName, url: downloadUrl, total: -1 });
+        emitter?.({
+          status: "succeeded",
+          filename: asset.fileName,
+          url: asset.downloadUrl,
+          total: -1,
+          loaded: -1,
+        });
       } else {
-        let retry = 0;
-        while (true) {
-          await downloadAsset(asset2, options, hooks);
-          if (await verifyAsset(asset2, options)) {
-            break;
+        let attempt = 0;
+        const maxRetries = 3;
+        while (attempt < maxRetries) {
+          try {
+            await downloadAsset(asset2, options, hooks);
+            await verifyAsset(asset2, options);
+            break; // Success
+          } catch (error) {
+            attempt++;
+            if (attempt >= maxRetries) {
+              emitter?.({
+                status: "failed",
+                filename: asset.fileName,
+                url: asset.downloadUrl,
+                total: 0,
+                loaded: 0,
+                error: error instanceof Error ? error : new Error(String(error)),
+              });
+              throw error; // Final attempt failed
+            }
+            emitter?.({
+              status: "retrying",
+              filename: asset.fileName,
+              url: asset.downloadUrl,
+              total: 0,
+              loaded: 0,
+              retryCount: attempt,
+              error: error instanceof Error ? error : new Error(String(error)),
+            });
           }
-          if (retry < 3) {
-            throw new Error(`${asset.fileName} verify failed`);
-          }
-          retry++;
         }
       }
 
-      // 3. 下载后执行插件系统
       if (!skipDownload) {
-        await runPlugins(asset2, tag);
+        await runPlugins(asset2, tag!);
       }
-
       await hooks.onAssetDownloadComplete?.(asset2);
-    }
+    };
 
-    emitter?.({ type: "done" });
+    const workers = Array(concurrency)
+      .fill(null)
+      .map(async () => {
+        while (downloadQueue.length > 0) {
+          const asset = downloadQueue.shift();
+          if (asset) {
+            await processAsset(asset as DownloadAsset);
+          }
+        }
+      });
+
+    await Promise.all(workers);
+
+    emitter?.({ status: "done" });
     await hooks.onAllComplete?.();
   };
 

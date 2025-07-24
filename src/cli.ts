@@ -39,12 +39,10 @@ export async function run(argv: string[]) {
       type: "boolean",
       alias: "p",
       description: "Enable proxy for downloads",
-      default: config.useProxy ?? true,
     })
     .option("proxy-url", {
       type: "string",
-      description: "Specify proxy URL",
-      default: config.proxyUrl || "https://ghfast.top/",
+      description: "Specify proxy URL template, e.g. https://gh.proxy/{{href}}",
     }).argv;
 
   // 3. 根据最终配置创建 Provider 和 Downloader
@@ -66,10 +64,29 @@ export async function run(argv: string[]) {
     await doDownload({
       ...options,
       emitter: (state) => {
-        if (state.type === "start") {
-          console.log(`[grab] Starting download: ${state.filename}`);
-        } else if (state.type === "done") {
+        if (state.status === "done") {
           console.log("[grab] All tasks completed.");
+          return;
+        }
+        switch (state.status) {
+          case "pending":
+            console.log(`[grab] Pending: ${state.filename}`);
+            break;
+          case "downloading":
+            if (state.total > 0) {
+              const percent = Math.round((state.loaded / state.total) * 100);
+              process.stdout.write(`[grab] Downloading: ${state.filename} ${percent}%\r`);
+            }
+            break;
+          case "verifying":
+            console.log(`\n[grab] Verifying: ${state.filename}`);
+            break;
+          case "succeeded":
+            console.log(`\n[grab] Succeeded: ${state.filename}`);
+            break;
+          case "failed":
+            console.error(`\n[grab] Failed: ${state.filename} - ${state.error?.message}`);
+            break;
         }
       },
     });

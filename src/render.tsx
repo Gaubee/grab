@@ -2,7 +2,7 @@ import * as colors from "@std/fmt/colors";
 import byteSize from "byte-size";
 import { Box, Text, measureElement, render, useApp, useInput } from "ink";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { DownloadOptions, State } from "./core/types";
+import type { DownloadOptions, DownloadTaskState, EmitterState } from "./core/types";
 
 type DoDownloadFunc = (options: DownloadOptions) => Promise<void>;
 
@@ -31,24 +31,43 @@ const ProgressBar = ({ percent }: { percent: number }) => {
   );
 };
 
-const PanelView = ({ filename, total, loaded }: { filename: string; total: number; loaded: number }) => {
-  const startTime = useMemo(() => Date.now(), []);
-  const speed = byteSize(loaded / ((Date.now() - startTime) / 1000) || 0) + "/s";
-  const totalByteResult = useMemo(() => byteSize(total), [total]);
-  const percent = total === 0 ? 0 : loaded / total;
+const StatusDisplay = ({ status, error, retryCount }: DownloadTaskState) => {
+  switch (status) {
+    case "pending":
+      return <Text color="gray">Pending...</Text>;
+    case "downloading":
+      return <Text color="blue">Downloading...</Text>;
+    case "verifying":
+      return <Text color="yellow">Verifying...</Text>;
+    case "retrying":
+      return <Text color="yellow">Retrying ({retryCount})... Error: {error?.message}</Text>;
+    case "failed":
+      return <Text color="red">Failed: {error?.message}</Text>;
+    case "succeeded":
+      return <Text color="green">Succeeded</Text>;
+    default:
+      return null;
+  }
+};
+
+const PanelView = ({ task }: { task: DownloadTaskState }) => {
+  const { filename, total, loaded, url } = task;
+  const percent = total > 0 ? loaded / total : 0;
+
   return (
-    <Box flexDirection="column" borderStyle="round" gap={1}>
-      <Box flexDirection="row" gap={1}>
-        <Text color="gray">File: {colors.blue(filename)}</Text>
-        <Text color="gray">Speed: {colors.green(speed)}</Text>
-      </Box>
+    <Box flexDirection="column" borderStyle="round" paddingX={1} gap={1}>
       <Box flexDirection="row" justifyContent="space-between">
+        <Text color="cyan">{filename}</Text>
+        <StatusDisplay {...task} />
+      </Box>
+      <Text color="gray" dimColor>
+        {url}
+      </Text>
+      <Box flexDirection="row" gap={1}>
         <ProgressBar percent={percent} />
-        <Box marginLeft={1} minWidth={20} justifyContent="flex-end">
-          <Text color="green">
-            {byteSize(loaded, { precision: 1 }).toString()}
-            {" / "}
-            {totalByteResult.toString()}
+        <Box minWidth={22} justifyContent="flex-end">
+          <Text>
+            {byteSize(loaded, { precision: 1 }).toString()} / {byteSize(total).toString()}
           </Text>
         </Box>
       </Box>
@@ -56,12 +75,7 @@ const PanelView = ({ filename, total, loaded }: { filename: string; total: numbe
   );
 };
 
-interface MainViewProps {
-  doDownloadFunc: DoDownloadFunc;
-  options: DownloadOptions;
-}
-
-const MainView = ({ doDownloadFunc, options }: MainViewProps) => {
+const MainView = ({ doDownloadFunc, options }: { doDownloadFunc: DoDownloadFunc; options: DownloadOptions }) => {
   const { exit } = useApp();
   useInput((input, key) => {
     if (input === "c" && (key.ctrl || key.meta)) {
@@ -69,61 +83,61 @@ const MainView = ({ doDownloadFunc, options }: MainViewProps) => {
     }
   });
 
-  const [filename, setFilename] = useState("");
-  const [total, setTotal] = useState(1);
-  const [loaded, setLoaded] = useState(0);
-  const [downloadedFiles, setDownloadedFiles] = useState<string[]>([]);
+  const [tasks, setTasks] = useState<Record<string, DownloadTaskState>>({});
   const [done, setDone] = useState(false);
 
   useEffect(() => {
     const aborter = new AbortController();
-    let currentDownloadSize = 0;
-    let currentTotalSize = 1;
-    let currentFilename = "";
 
     doDownloadFunc({
       ...options,
       signal: aborter.signal,
-      emitter: (state: State) => {
-        if (state.type === "start") {
-          currentFilename = state.filename;
-          setFilename(currentFilename);
-          currentTotalSize = state.total > 0 ? state.total : 1;
-          setTotal(currentTotalSize);
-          currentDownloadSize = 0;
-          setLoaded(currentDownloadSize);
-        } else if (state.type === "progress") {
-          currentDownloadSize += state.chunkSize;
-          setLoaded(currentDownloadSize);
-          if (currentDownloadSize >= currentTotalSize) {
-            setDownloadedFiles((prev) => [...prev, currentFilename]);
-          }
-        } else if (state.type === "done") {
+      emitter: (state: EmitterState) => {
+        if (state.status === "done") {
           setDone(true);
           setTimeout(() => exit(), 500);
+          return;
         }
+        setTasks((prev) => ({
+          ...prev,
+          [state.url]: state,
+        }));
       },
     }).catch((error) => {
-      console.error("\x1b[31m%s\x1b[0m", `\n[grab] Download failed: ${error.message}`);
-      exit();
+      console.error("\n" + colors.red(`[grab] Download failed: ${error.message}`));
+      exit(error);
     });
 
     return () => aborter.abort("cancel");
   }, [doDownloadFunc, options, exit]);
 
+  const taskList = Object.values(tasks);
+  const succeeded = taskList.filter((t) => t.status === "succeeded");
+  const failed = taskList.filter((t) => t.status === "failed");
+  const inProgress = taskList.filter((t) => t.status !== "succeeded" && t.status !== "failed");
+
   return (
     <Box flexDirection="column" gap={1}>
-      {downloadedFiles.map((file, i) => (
-        <Text key={i} color="green">
-          ✅ Downloaded: {colors.blue(file)}
-        </Text>
+      {inProgress.map((task) => (
+        <PanelView key={task.url} task={task} />
       ))}
-      {done ? (
-        <Text color="green">All tasks completed successfully!</Text>
-      ) : filename ? (
-        <PanelView filename={filename} total={total} loaded={loaded} />
-      ) : (
-        <Text>Initializing...</Text>
+      {done && (
+        <Box flexDirection="column" marginTop={1}>
+          <Text color="green">✅ All tasks completed.</Text>
+          <Text>
+            - {succeeded.length} succeeded, {failed.length} failed.
+          </Text>
+          {failed.length > 0 && (
+            <Box flexDirection="column" marginTop={1}>
+              <Text color="red">Failed Tasks:</Text>
+              {failed.map((task) => (
+                <Text key={task.url}>
+                  - {task.filename}: {task.error?.message}
+                </Text>
+              ))}
+            </Box>
+          )}
+        </Box>
       )}
     </Box>
   );

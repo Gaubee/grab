@@ -3,7 +3,13 @@ import { $, execa } from "execa";
 import crypto from "node:crypto";
 import { createReadStream, createWriteStream, mkdirSync, statSync } from "node:fs";
 import { Writable } from "node:stream";
-import type { CustomDownloaderConfig, DownloadAsset, DownloadOptions, LifecycleHooks } from "./types";
+import type {
+  CustomDownloaderConfig,
+  DownloadAsset,
+  DownloadOptions,
+  DownloadTaskState,
+  LifecycleHooks,
+} from "./types";
 /**
  * 智能地检查外部命令是否存在，并能特殊处理 Windows 下的 wget 别名问题。
  * @param command - 要检查的命令 (e.g., 'wget')。
@@ -42,9 +48,20 @@ async function checkWin32Command(command: string): Promise<boolean | "alias"> {
  */
 export const downloadAsset = async (asset: DownloadAsset, options: DownloadOptions, hooks: LifecycleHooks) => {
   const { emitter, signal, mode = "fetch" } = options;
-  const { downloadUrl, downloadedFilePath, downloadDirname } = asset; // 临时下载路径
+  const { downloadUrl, downloadedFilePath, downloadDirname, fileName, digest } = asset;
 
   mkdirSync(downloadDirname, { recursive: true });
+
+  const emit = (state: Partial<DownloadTaskState>) => {
+    emitter?.({
+      status: "downloading",
+      filename: fileName,
+      url: downloadUrl,
+      total: 0,
+      loaded: 0,
+      ...state,
+    });
+  };
 
   if (typeof mode === "function") {
     const customConfig: CustomDownloaderConfig = { ...asset, ...obj_pick(options, "emitter", "signal"), hooks };
@@ -64,17 +81,16 @@ export const downloadAsset = async (asset: DownloadAsset, options: DownloadOptio
     if (cache.etag) {
       headers.set("If-None-Match", cache.etag);
     }
-    emitter?.({ type: "start", filename: asset.fileName, url: downloadUrl, total: 0 });
-    let res = await fetch(downloadUrl, { signal, headers });
+    emit({ status: "downloading", loaded: existingLength });
+    const res = await fetch(downloadUrl, { signal, headers });
     if (res.status === 304) {
-      emitter?.({ type: "start", filename: asset.fileName, url: downloadUrl, total: existingLength });
-      emitter?.({ type: "progress", chunkSize: existingLength });
+      emit({ status: "succeeded", loaded: existingLength, total: existingLength });
       return;
     }
     if (res.status === 416) {
-      res = await fetch(downloadUrl, { signal, method: "HEAD" });
-      if (res.ok && res.headers.get("etag")) {
-        await hooks.setAssetCache?.(asset, { etag: res.headers.get("etag")! });
+      const headRes = await fetch(downloadUrl, { signal, method: "HEAD" });
+      if (headRes.ok && headRes.headers.get("etag")) {
+        await hooks.setAssetCache?.(asset, { etag: headRes.headers.get("etag")! });
       }
       return;
     }
@@ -94,20 +110,15 @@ export const downloadAsset = async (asset: DownloadAsset, options: DownloadOptio
       } else {
         existingLength = 0;
       }
-      emitter?.({ type: "start", filename: asset.fileName, url: downloadUrl, total });
+      emit({ total, loaded: existingLength });
       let loaded = existingLength;
       await res.body
         .pipeThrough(
           new TransformStream({
-            start() {
-              if (loaded > 0) {
-                emitter?.({ type: "progress", chunkSize: loaded });
-              }
-            },
             transform: (chunk, controller) => {
               controller.enqueue(chunk);
               loaded += chunk.length;
-              emitter?.({ type: "progress", chunkSize: chunk.length });
+              emit({ loaded, total });
             },
           }),
         )
@@ -153,40 +164,47 @@ export const downloadAsset = async (asset: DownloadAsset, options: DownloadOptio
     .slice(1)
     .map((arg) => arg.replace(/\$DOWNLOAD_URL/g, downloadUrl).replace(/\$DOWNLOAD_FILE/g, downloadedFilePath));
 
-  emitter?.({ type: "start", filename: asset.fileName, url: downloadUrl, total: 0 });
+  emit({ status: "downloading" });
   await $(executable, commandArgs, { stdio: "inherit" });
   const stats = statSync(downloadedFilePath);
-  emitter?.({ type: "progress", chunkSize: stats.size });
+  emit({ loaded: stats.size, total: stats.size });
 };
 
 export const verifyAsset = async (asset: DownloadAsset, options: DownloadOptions) => {
-  const [algorithm, hex] = asset.digest.split(":");
-  const fileStream = createReadStream(asset.downloadedFilePath);
+  const { emitter } = options;
+  const { fileName, downloadUrl, digest, downloadedFilePath } = asset;
+
+  const emit = (state: Partial<DownloadTaskState>) => {
+    emitter?.({
+      status: "verifying",
+      filename: fileName,
+      url: downloadUrl,
+      total: 0,
+      loaded: 0,
+      digest,
+      ...state,
+    });
+  };
+
+  emit({});
+
+  const [algorithm, hex] = digest.split(":");
+  const fileStream = createReadStream(downloadedFilePath);
   const hashStream = crypto.createHash(algorithm);
   fileStream.pipe(hashStream);
-  try {
-    const localHex = await new Promise((resolve, reject) => {
-      hashStream.on("error", reject);
-      hashStream.on("end", () => resolve(hashStream.digest("hex") === hex));
-    });
 
-    if (localHex === hex) {
-      options.emitter?.({ type: "verify-success", digest: asset.digest });
-      return true;
-    } else {
-      options.emitter?.({
-        type: "verify-error",
-        digest: asset.digest,
-        error: new Error(`hash ${algorithm} no match: ${localHex}`),
-      });
-      return false;
-    }
-  } catch (err) {
-    options.emitter?.({
-      type: "verify-error",
-      digest: asset.digest,
-      error: err,
+  const localHex = await new Promise((resolve, reject) => {
+    fileStream.on("error", reject);
+    hashStream.on("error", reject);
+    hashStream.on("finish", () => {
+      resolve(hashStream.digest("hex"));
     });
-    return false;
+  });
+
+  if (localHex === hex) {
+    emit({ status: "succeeded" });
+    return true;
+  } else {
+    throw new Error(`Hash mismatch: expected ${hex}, got ${localHex}`);
   }
 };

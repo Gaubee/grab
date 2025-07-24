@@ -1,81 +1,117 @@
 /**
- * 下载过程中的状态，用于 Emitter 向外报告进度。
+ * @fileoverview Defines the core types used throughout the downloader.
+ *
+ * @description
+ * This file contains the central type definitions for assets, download states,
+ * and plugin configurations. The core of the download process is modeled
+ * by the `DownloadTaskState` state machine.
  */
-export type State =
-  | {
-      type: "start";
-      filename: string;
-      url: string;
-      total: number;
-    }
-  | {
-      type: "progress";
-      chunkSize: number;
-    }
-  | {
-      type: "start-verify";
-      digest: string;
-    }
-  | {
-      type: "verify-error";
-      digest: string;
-      error: unknown;
-    }
-  | {
-      type: "verify-success";
-      digest: string;
-    }
-  | {
-      type: "done";
-    };
+
+// =================================================================
+// Download Task State Machine
+// =================================================================
+/**
+ * The lifecycle of a download task is represented by the following state machine.
+ * Each state transition is triggered by an event in the download process.
+ *
+ * State Transition Diagram:
+ *
+ * [ pending ] --(start download)--> [ downloading ] --(progress)--> [ downloading ]
+ *      |                                  |
+ *      |                                  +--(download complete)--> [ verifying ]
+ *      |
+ * [ downloading ] --(download error)--> [ retrying ] --(retry)--> [ downloading ]
+ *      |                                     |
+ *      |                                     +--(max retries reached)--> [ failed ]
+ *      |
+ * [ verifying ] --(verify error)--> [ retrying ] --(retry)--> [ downloading ]
+ *      |                                   |
+ *      |                                   +--(max retries reached)--> [ failed ]
+ *      |
+ * [ verifying ] --(verify success)--> [ succeeded ]
+ *
+ * Each state is represented by the `DownloadTaskState` object, which contains
+ * a `status` field and other relevant data for that state.
+ */
+export type DownloadStatus = "pending" | "downloading" | "verifying" | "retrying" | "failed" | "succeeded";
+
+export interface DownloadTaskState {
+  status: DownloadStatus;
+  filename: string;
+  url: string;
+  total: number;
+  loaded: number;
+  error?: Error;
+  retryCount?: number;
+  digest?: string;
+}
 
 /**
- * 用户定义的抽象资源。
+ * The emitter function reports the progress of the download by passing
+ * `DownloadTaskState` objects. A final `done` state is emitted when all
+ * tasks are complete.
+ */
+export type EmitterState = DownloadTaskState | { status: "done" };
+
+// =================================================================
+// Asset and Plugin Definitions
+// =================================================================
+
+/**
+ * A user-defined abstract resource to be downloaded.
  */
 export interface Asset {
-  /** 资源名称，可以是全称，也可以是一些关键词的组合，比如 name:['macos','amr64'] */
+  /** The name of the asset, which can be a full name or a set of keywords. */
   name: string | string[];
-  /** 自定义插件 */
+  /** A list of custom plugins to process the asset after download. */
   plugins?: AssetPlugin[];
   /**
-   * 目标路径，如果配置了，等价于启用rename插件
-   * 如果需要比较复杂的逻辑，请直接使用rename插件
+   * An optional target path. If provided, it's equivalent to using the `copy` plugin.
+   * For more complex logic, use the `rename` plugin directly.
    */
   targetPath?: string;
 }
 
 /**
- * 由 ReleaseProvider 解析后的具体资源。
+ * A resource that has been resolved by a `ReleaseProvider` to a specific file.
  */
 export interface ResolvedAsset extends Asset {
-  /** 原始文件名 */
+  /** The original filename of the asset. */
   fileName: string;
-  /** 下载链接 */
+  /** The direct download URL for the asset. */
   downloadUrl: string;
-  /** hash 信息 */
+  /** The hash digest for verifying the asset's integrity (e.g., "sha256:deadbeef..."). */
   digest: string;
 }
+
+/**
+ * A resolved asset with additional download-specific path information.
+ */
 export interface DownloadAsset extends ResolvedAsset {
-  /** 下载目录路径 */
+  /** The directory where the asset will be downloaded. */
   downloadDirname: string;
-  /** 下载文件路径 */
+  /** The full file path where the asset will be saved. */
   downloadedFilePath: string;
 }
 
 /**
- * 插件执行时可用的上下文信息。
+ * The context object available to plugins during execution.
  */
 export interface PluginContext extends DownloadAsset {
   tag: string;
 }
 
 /**
- * 插件接口，定义了对下载资产进行后处理的操作。
+ * A function that processes a downloaded asset.
  */
 export type AssetPlugin = (context: PluginContext) => Promise<void>;
 
+// =================================================================
+// Downloader Configuration
+// =================================================================
+
 /**
- * 生命周期钩子。
+ * Lifecycle hooks that can be injected into the download process.
  */
 export interface LifecycleHooks {
   onTagFetched?: (tag: string) => Promise<void> | void;
@@ -86,42 +122,43 @@ export interface LifecycleHooks {
 }
 
 /**
- * 自定义下载函数的配置对象。
+ * The configuration object for a custom downloader function.
  */
 export interface CustomDownloaderConfig extends DownloadAsset {
   hooks: LifecycleHooks;
-  emitter?: (state: State) => void;
+  emitter?: (state: EmitterState) => void;
   signal?: AbortSignal;
 }
 
 /**
- * 自定义下载函数的签名。
+ * A custom function to handle the download logic.
  */
 export type CustomDownloaderFunction = (config: CustomDownloaderConfig) => Promise<void>;
 
 /**
- * 定义了可用的下载模式：
- * - 'fetch': (默认) 使用内置的 Node.js fetch API。
- * - 'wget' | 'curl': 使用系统中的 wget 或 curl 命令（如果存在）。
- * - string: 一个自定义命令模板，如 "aria2c -o $DOWNLOAD_FILE $DOWNLOAD_URL"。
- * - string[]: 一个自定义命令数组，如 ["wget", "-O", "$DOWNLOAD_FILE", "$DOWNLOAD_URL"]。
- * - CustomDownloaderFunction: 一个自定义的JS函数，用于完全控制下载逻辑。
+ * Defines the available download modes.
+ * - 'fetch': (Default) Use the built-in Node.js fetch API.
+ * - 'wget' | 'curl': Use the system's `wget` or `curl` command.
+ * - string: A custom command template (e.g., "aria2c -o $DOWNLOAD_FILE $DOWNLOAD_URL").
+ * - string[]: A custom command array (e.g., ["wget", "-O", "$DOWNLOAD_FILE", "$DOWNLOAD_URL"]).
+ * - CustomDownloaderFunction: A JS function for full control over the download logic.
  */
 export type DownloadMode = "fetch" | "wget" | "curl" | string | string[] | CustomDownloaderFunction;
 
 /**
- * 下载函数的配置选项。
+ * The main options for configuring the download process.
  */
 export interface DownloadOptions {
-  emitter?: (state: State) => void;
+  emitter?: (state: EmitterState) => void;
   signal?: AbortSignal;
   tag?: string;
+  concurrency?: number;
   skipDownload?: boolean;
   useProxy?: boolean;
   proxyUrl?: string | ((originUrl: string) => string);
   cacheDir?: string;
   /**
-   * 下载策略模式。
+   * The download strategy to use.
    * @default 'fetch'
    */
   mode?: DownloadMode;
