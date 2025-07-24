@@ -1,7 +1,7 @@
 import { obj_pick } from "@gaubee/util";
 import { $, execa } from "execa";
 import crypto from "node:crypto";
-import { createReadStream, createWriteStream, mkdirSync, statSync } from "node:fs";
+import { createReadStream, createWriteStream, mkdirSync, statSync, unlinkSync } from "node:fs";
 import { Writable } from "node:stream";
 import type {
   CustomDownloaderConfig,
@@ -10,6 +10,37 @@ import type {
   DownloadTaskState,
   LifecycleHooks,
 } from "./types";
+
+export class HashMismatchError extends Error {
+  constructor(
+    public expected: string,
+    public actual: string,
+    public fileName: string,
+    public url: string
+  ) {
+    super(`Hash mismatch for ${fileName}: expected ${expected}, got ${actual}`);
+    this.name = "HashMismatchError";
+  }
+}
+
+/**
+ * 清除资产的缓存文件和ETag信息
+ */
+export const clearAssetCache = async (asset: DownloadAsset, hooks: LifecycleHooks) => {
+  try {
+    // 删除缓存的文件
+    unlinkSync(asset.downloadedFilePath);
+  } catch (error) {
+    // 文件可能不存在，忽略错误
+  }
+  
+  // 清除ETag缓存
+  try {
+    await hooks.setAssetCache?.(asset, { etag: "" });
+  } catch (error) {
+    // 忽略缓存清除错误
+  }
+};
 /**
  * 智能地检查外部命令是否存在，并能特殊处理 Windows 下的 wget 别名问题。
  * @param command - 要检查的命令 (e.g., 'wget')。
@@ -193,7 +224,7 @@ export const verifyAsset = async (asset: DownloadAsset, options: DownloadOptions
   const hashStream = crypto.createHash(algorithm);
   fileStream.pipe(hashStream);
 
-  const localHex = await new Promise((resolve, reject) => {
+  const localHex = await new Promise<string>((resolve, reject) => {
     fileStream.on("error", reject);
     hashStream.on("error", reject);
     hashStream.on("finish", () => {
@@ -205,6 +236,34 @@ export const verifyAsset = async (asset: DownloadAsset, options: DownloadOptions
     emit({ status: "succeeded" });
     return true;
   } else {
-    throw new Error(`Hash mismatch: expected ${hex}, got ${localHex}`);
+    throw new HashMismatchError(hex, localHex, fileName, downloadUrl);
   }
+};
+
+/**
+ * 重新下载和验证资产
+ * @param asset 要重新处理的资产
+ * @param options 下载选项
+ * @param hooks 生命周期钩子
+ */
+export const retryAsset = async (asset: DownloadAsset, options: DownloadOptions, hooks: LifecycleHooks) => {
+  const { emitter } = options;
+  
+  // 发送清除缓存状态
+  emitter?.({
+    status: "clearing_cache",
+    filename: asset.fileName,
+    url: asset.downloadUrl,
+    total: 0,
+    loaded: 0,
+  });
+  
+  // 清除资产缓存
+  await clearAssetCache(asset, hooks);
+  
+  // 重新下载资产
+  await downloadAsset(asset, options, hooks);
+  
+  // 重新验证资产
+  await verifyAsset(asset, options);
 };

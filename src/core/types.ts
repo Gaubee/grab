@@ -33,7 +33,7 @@
  * Each state is represented by the `DownloadTaskState` object, which contains
  * a `status` field and other relevant data for that state.
  */
-export type DownloadStatus = "pending" | "downloading" | "verifying" | "retrying" | "failed" | "succeeded";
+export type DownloadStatus = "pending" | "downloading" | "verifying" | "retrying" | "failed" | "succeeded" | "verification_failed" | "clearing_cache" | "skipped";
 
 export interface DownloadTaskState {
   status: DownloadStatus;

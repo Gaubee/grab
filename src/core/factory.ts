@@ -2,7 +2,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { copy } from "../plugins";
-import { downloadAsset, verifyAsset } from "./core";
+import { clearAssetCache, downloadAsset, HashMismatchError, verifyAsset } from "./core";
 import type { ReleaseProvider } from "./provider";
 import type { Asset, DownloadAsset, DownloadOptions, LifecycleHooks, PluginContext } from "./types";
 
@@ -68,8 +68,31 @@ export const createDownloader = (provider: ReleaseProvider, assets: Asset[], hoo
     mkdirSync(downloadCacheDir, { recursive: true });
 
     // 2. 并发下载所有已解析的资源
-    const downloadQueue = [...resolvedAssets];
-    for (const asset of resolvedAssets) {
+    const downloadQueue = [...resolvedAssets].map((baseAsset) => {
+      const getProxyUrl = () => {
+        if (typeof proxyUrl === "string") {
+          if (!/\{\{.*\}\}/.test(proxyUrl)) {
+            console.warn(
+              `[grab] Warning: proxy-url "${proxyUrl}" does not seem to be a valid template. Expected a template like "https://my.proxy/{{href}}". Disabling proxy for this download.`,
+            );
+            return baseAsset.downloadUrl;
+          }
+          const downloadUrl = new URL(baseAsset.downloadUrl);
+          return proxyUrl.replace(/\{\{(\w+)\}\}/g, (_, key) => Reflect.get(downloadUrl, key) ?? _);
+        }
+        if (typeof proxyUrl === "function") {
+          return proxyUrl(baseAsset.downloadUrl);
+        }
+        return baseAsset.downloadUrl;
+      };
+      const downloadUrl = useProxy ? getProxyUrl() : baseAsset.downloadUrl;
+
+      const downloadDirname = path.join(downloadCacheDir, baseAsset.digest.split(":").at(-1)!.slice(0, 8));
+      const downloadedFilePath = path.join(downloadDirname, baseAsset.fileName);
+      const asset: DownloadAsset = { ...baseAsset, downloadDirname, downloadedFilePath, downloadUrl };
+      return asset;
+    });
+    for (const asset of downloadQueue) {
       emitter?.({
         status: "pending",
         filename: asset.fileName,
@@ -80,28 +103,6 @@ export const createDownloader = (provider: ReleaseProvider, assets: Asset[], hoo
     }
 
     const processAsset = async (asset: DownloadAsset) => {
-      const getProxyUrl = () => {
-        if (typeof proxyUrl === "string") {
-          if (!/\{\{.*\}\}/.test(proxyUrl)) {
-            console.warn(
-              `[grab] Warning: proxy-url "${proxyUrl}" does not seem to be a valid template. Expected a template like "https://my.proxy/{{href}}". Disabling proxy for this download.`,
-            );
-            return asset.downloadUrl;
-          }
-          const downloadUrl = new URL(asset.downloadUrl);
-          return proxyUrl.replace(/\{\{(\w+)\}\}/g, (_, key) => Reflect.get(downloadUrl, key) ?? _);
-        }
-        if (typeof proxyUrl === "function") {
-          return proxyUrl(asset.downloadUrl);
-        }
-        return asset.downloadUrl;
-      };
-      const downloadUrl = useProxy ? getProxyUrl() : asset.downloadUrl;
-
-      const downloadDirname = path.join(downloadCacheDir, asset.digest.split(":").at(-1)!.slice(0, 8));
-      const downloadedFilePath = path.join(downloadDirname, asset.fileName);
-      const asset2: DownloadAsset = { ...asset, downloadDirname, downloadedFilePath, downloadUrl };
-
       if (skipDownload) {
         emitter?.({
           status: "succeeded",
@@ -115,10 +116,24 @@ export const createDownloader = (provider: ReleaseProvider, assets: Asset[], hoo
         const maxRetries = 3;
         while (attempt < maxRetries) {
           try {
-            await downloadAsset(asset2, options, hooks);
-            await verifyAsset(asset2, options);
+            await downloadAsset(asset, options, hooks);
+            await verifyAsset(asset, options);
             break; // Success
           } catch (error) {
+            // 如果是哈希不匹配错误，发送verification_failed状态并等待用户决策
+            if (error instanceof HashMismatchError) {
+              emitter?.({
+                status: "verification_failed",
+                filename: asset.fileName,
+                url: asset.downloadUrl,
+                total: 0,
+                loaded: 0,
+                error: error,
+              });
+              // 等待用户决策后再继续
+              return; // 不抛出错误，让TUI处理用户决策
+            }
+
             attempt++;
             if (attempt >= maxRetries) {
               emitter?.({
@@ -145,9 +160,9 @@ export const createDownloader = (provider: ReleaseProvider, assets: Asset[], hoo
       }
 
       if (!skipDownload) {
-        await runPlugins(asset2, tag!);
+        await runPlugins(asset, tag!);
       }
-      await hooks.onAssetDownloadComplete?.(asset2);
+      await hooks.onAssetDownloadComplete?.(asset);
     };
 
     const workers = Array(concurrency)
@@ -167,5 +182,79 @@ export const createDownloader = (provider: ReleaseProvider, assets: Asset[], hoo
     await hooks.onAllComplete?.();
   };
 
-  return doDownload;
+  // 添加重新处理任务的函数
+  const retryFailedAssets = async (failedAssets: DownloadAsset[], options: DownloadOptions = {}) => {
+    const { emitter } = options;
+
+    for (const asset of failedAssets) {
+      try {
+        // 发送清除缓存状态
+        emitter?.({
+          status: "clearing_cache",
+          filename: asset.fileName,
+          url: asset.downloadUrl,
+          total: 0,
+          loaded: 0,
+        });
+
+        // 清除资产缓存
+        await clearAssetCache(asset, hooks);
+
+        // 重新下载和验证资产
+        let attempt = 0;
+        const maxRetries = 3;
+        while (attempt < maxRetries) {
+          try {
+            await downloadAsset(asset, options, hooks);
+            await verifyAsset(asset, options);
+            // 成功后发送成功状态
+            emitter?.({
+              status: "succeeded",
+              filename: asset.fileName,
+              url: asset.downloadUrl,
+              total: 0,
+              loaded: 0,
+            });
+            break; // Success
+          } catch (error) {
+            attempt++;
+            if (attempt >= maxRetries) {
+              emitter?.({
+                status: "failed",
+                filename: asset.fileName,
+                url: asset.downloadUrl,
+                total: 0,
+                loaded: 0,
+                error: error instanceof Error ? error : new Error(String(error)),
+              });
+              throw error; // Final attempt failed
+            }
+            emitter?.({
+              status: "retrying",
+              filename: asset.fileName,
+              url: asset.downloadUrl,
+              total: 0,
+              loaded: 0,
+              retryCount: attempt,
+              error: error instanceof Error ? error : new Error(String(error)),
+            });
+          }
+        }
+      } catch (error) {
+        // 如果是哈希不匹配错误，再次发送verification_failed状态
+        if (error instanceof HashMismatchError) {
+          emitter?.({
+            status: "verification_failed",
+            filename: asset.fileName,
+            url: asset.downloadUrl,
+            total: 0,
+            loaded: 0,
+            error: error,
+          });
+        }
+      }
+    }
+  };
+
+  return Object.assign(doDownload, { retryFailedAssets });
 };
