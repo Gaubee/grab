@@ -2,7 +2,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { copy } from "../plugins";
-import { downloadAsset } from "./core";
+import { downloadAsset, verifyAsset } from "./core";
 import type { ReleaseProvider } from "./provider";
 import type { Asset, DownloadAsset, DownloadOptions, LifecycleHooks, PluginContext } from "./types";
 
@@ -42,7 +42,7 @@ async function runPlugins(asset: DownloadAsset, tag: string) {
  */
 export const createDownloader = (provider: ReleaseProvider, assets: Asset[], hooks: LifecycleHooks = {}) => {
   const doDownload = async (options: DownloadOptions = {}) => {
-    const { emitter, useProxy = true, proxyUrl = "https://ghfast.top/%s", skipDownload = false } = options;
+    const { emitter, useProxy = true, proxyUrl = "https://ghfast.top/{{href}}", skipDownload = false } = options;
 
     let tag = options.tag;
 
@@ -64,11 +64,14 @@ export const createDownloader = (provider: ReleaseProvider, assets: Asset[], hoo
     // 2. 循环下载所有已解析的资源
     for (const asset of resolvedAssets) {
       const getProxyUrl = () => {
-        return typeof proxyUrl === "string"
-          ? proxyUrl.replaceAll("%s", asset.downloadUrl)
-          : typeof proxyUrl === "function"
-            ? proxyUrl(asset.downloadUrl)
-            : asset.downloadUrl;
+        if (typeof proxyUrl === "string") {
+          const downloadUrl = new URL(asset.downloadUrl);
+          return proxyUrl.replace(/\{\{(\w+)\}\}/g, (_, key) => Reflect.get(downloadUrl, key) ?? _);
+        }
+        if (typeof proxyUrl === "function") {
+          return proxyUrl(asset.downloadUrl);
+        }
+        return asset.downloadUrl;
       };
       const downloadUrl = useProxy ? getProxyUrl() : asset.downloadUrl;
 
@@ -79,7 +82,21 @@ export const createDownloader = (provider: ReleaseProvider, assets: Asset[], hoo
 
       const asset2: DownloadAsset = { ...asset, downloadDirname, downloadedFilePath, downloadUrl };
 
-      await downloadAsset(asset2, options, hooks);
+      if (skipDownload) {
+        options.emitter?.({ type: "start", filename: asset.fileName, url: downloadUrl, total: -1 });
+      } else {
+        let retry = 0;
+        while (true) {
+          await downloadAsset(asset2, options, hooks);
+          if (await verifyAsset(asset2, options)) {
+            break;
+          }
+          if (retry < 3) {
+            throw new Error(`${asset.fileName} verify failed`);
+          }
+          retry++;
+        }
+      }
 
       // 3. 下载后执行插件系统
       if (!skipDownload) {

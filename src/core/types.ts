@@ -5,11 +5,25 @@ export type State =
   | {
       type: "start";
       filename: string;
+      url: string;
       total: number;
     }
   | {
       type: "progress";
       chunkSize: number;
+    }
+  | {
+      type: "start-verify";
+      digest: string;
+    }
+  | {
+      type: "verify-error";
+      digest: string;
+      error: unknown;
+    }
+  | {
+      type: "verify-success";
+      digest: string;
     }
   | {
       type: "done";

@@ -27,9 +27,10 @@ interface CopyOptions {
 export const copy = (options: CopyOptions): AssetPlugin => {
   return async (context) => {
     const { downloadDirname } = context;
-    console.log(`[Plugin:rename] Searching for '${options.sourcePath}' in ${downloadDirname}`);
+    const sourcePath = options.sourcePath ?? context.fileName;
+    console.log(`[Plugin:rename] Searching for '${sourcePath}' in ${downloadDirname}`);
 
-    const fromPath = await findFile(downloadDirname, options.sourcePath ?? context.fileName);
+    const fromPath = await findFile(downloadDirname, sourcePath);
     if (!fromPath) {
       console.error("ls-downloadDirname", downloadDirname, globSync(downloadDirname + "/**"));
       throw new Error(`[Plugin:rename] Could not find '${options.sourcePath}' in ${downloadDirname}`);

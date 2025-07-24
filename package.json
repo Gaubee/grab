@@ -1,7 +1,7 @@
 {
   "private": false,
   "name": "@gaubee/grab",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "description": "A declarative tool for downloading and processing assets from GitHub Releases.",
   "main": "bundle/cli.js",

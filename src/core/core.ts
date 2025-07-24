@@ -1,6 +1,7 @@
 import { obj_pick } from "@gaubee/util";
 import { $, execa } from "execa";
-import { createWriteStream, mkdirSync, statSync } from "node:fs";
+import crypto from "node:crypto";
+import { createReadStream, createWriteStream, mkdirSync, statSync } from "node:fs";
 import { Writable } from "node:stream";
 import type { CustomDownloaderConfig, DownloadAsset, DownloadOptions, LifecycleHooks } from "./types";
 /**
@@ -40,15 +41,10 @@ async function checkWin32Command(command: string): Promise<boolean | "alias"> {
  * 下载单个指定的资源文件，根据 mode 选择不同的下载策略。
  */
 export const downloadAsset = async (asset: DownloadAsset, options: DownloadOptions, hooks: LifecycleHooks) => {
-  const { emitter, signal, skipDownload = false, mode = "fetch" } = options;
+  const { emitter, signal, mode = "fetch" } = options;
   const { downloadUrl, downloadedFilePath, downloadDirname } = asset; // 临时下载路径
 
   mkdirSync(downloadDirname, { recursive: true });
-
-  if (skipDownload) {
-    emitter?.({ type: "start", filename: asset.fileName, total: -1 });
-    return;
-  }
 
   if (typeof mode === "function") {
     const customConfig: CustomDownloaderConfig = { ...asset, ...obj_pick(options, "emitter", "signal"), hooks };
@@ -68,10 +64,10 @@ export const downloadAsset = async (asset: DownloadAsset, options: DownloadOptio
     if (cache.etag) {
       headers.set("If-None-Match", cache.etag);
     }
-    emitter?.({ type: "start", filename: asset.fileName, total: 0 });
+    emitter?.({ type: "start", filename: asset.fileName, url: downloadUrl, total: 0 });
     let res = await fetch(downloadUrl, { signal, headers });
     if (res.status === 304) {
-      emitter?.({ type: "start", filename: asset.fileName, total: existingLength });
+      emitter?.({ type: "start", filename: asset.fileName, url: downloadUrl, total: existingLength });
       emitter?.({ type: "progress", chunkSize: existingLength });
       return;
     }
@@ -98,7 +94,7 @@ export const downloadAsset = async (asset: DownloadAsset, options: DownloadOptio
       } else {
         existingLength = 0;
       }
-      emitter?.({ type: "start", filename: asset.fileName, total });
+      emitter?.({ type: "start", filename: asset.fileName, url: downloadUrl, total });
       let loaded = existingLength;
       await res.body
         .pipeThrough(
@@ -157,8 +153,40 @@ export const downloadAsset = async (asset: DownloadAsset, options: DownloadOptio
     .slice(1)
     .map((arg) => arg.replace(/\$DOWNLOAD_URL/g, downloadUrl).replace(/\$DOWNLOAD_FILE/g, downloadedFilePath));
 
-  emitter?.({ type: "start", filename: asset.fileName, total: 0 });
+  emitter?.({ type: "start", filename: asset.fileName, url: downloadUrl, total: 0 });
   await $(executable, commandArgs, { stdio: "inherit" });
   const stats = statSync(downloadedFilePath);
   emitter?.({ type: "progress", chunkSize: stats.size });
+};
+
+export const verifyAsset = async (asset: DownloadAsset, options: DownloadOptions) => {
+  const [algorithm, hex] = asset.digest.split(":");
+  const fileStream = createReadStream(asset.downloadedFilePath);
+  const hashStream = crypto.createHash(algorithm);
+  fileStream.pipe(hashStream);
+  try {
+    const localHex = await new Promise((resolve, reject) => {
+      hashStream.on("error", reject);
+      hashStream.on("end", () => resolve(hashStream.digest("hex") === hex));
+    });
+
+    if (localHex === hex) {
+      options.emitter?.({ type: "verify-success", digest: asset.digest });
+      return true;
+    } else {
+      options.emitter?.({
+        type: "verify-error",
+        digest: asset.digest,
+        error: new Error(`hash ${algorithm} no match: ${localHex}`),
+      });
+      return false;
+    }
+  } catch (err) {
+    options.emitter?.({
+      type: "verify-error",
+      digest: asset.digest,
+      error: err,
+    });
+    return false;
+  }
 };
