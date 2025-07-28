@@ -3,6 +3,7 @@ import { hideBin } from "yargs/helpers";
 import { loadConfig } from "./config";
 import { createDownloader } from "./core/factory";
 import { GithubReleaseProvider } from "./core/provider";
+import { DownloadOptions } from "./core/types";
 import fetchRender from "./render";
 
 export async function run(argv: string[]) {
@@ -56,7 +57,7 @@ export async function run(argv: string[]) {
     useProxy: args.useProxy,
     proxyUrl: args.proxyUrl,
     mode: args.interactive ? ("fetch" as const) : (args.mode as any),
-  };
+  } satisfies DownloadOptions;
 
   if (args.interactive) {
     fetchRender(doDownload, options);

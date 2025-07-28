@@ -30,7 +30,7 @@ describe("CLI Integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(loadConfig).mockResolvedValue(mockBaseConfig);
-    vi.mocked(createDownloader).mockReturnValue(mockDoDownload);
+    vi.mocked(createDownloader).mockReturnValue(mockDoDownload as any);
     vi.mocked(GithubReleaseProvider).mockImplementation(function (this: any, repo: string) {
       this.repo = repo;
       return this;

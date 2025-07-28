@@ -43,9 +43,10 @@ async function runPlugins(asset: DownloadAsset, tag: string) {
 export const createDownloader = (provider: ReleaseProvider, assets: Asset[], hooks: LifecycleHooks = {}) => {
   const doDownload = async (options: DownloadOptions = {}) => {
     const {
+      //
       emitter,
-      useProxy = true,
-      proxyUrl = "https://ghfast.top/{{href}}",
+      useProxy = false,
+      proxyUrl,
       skipDownload = false,
       concurrency = 4,
     } = options;
