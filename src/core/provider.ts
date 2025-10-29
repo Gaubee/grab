@@ -63,6 +63,14 @@ export class GithubReleaseProvider implements ReleaseProvider {
   }
 
   /**
+   * Get release information for a specific tag (public API for commands)
+   * @param tag - The release tag (e.g., "v2.11.6" or "latest")
+   */
+  async getReleaseInfo(tag: string): Promise<GithubReleaseInfo> {
+    return this.fetchReleaseByTag(tag);
+  }
+
+  /**
    * 从 GitHub API 获取并缓存指定 tag 的 release 信息。
    * @param tag - The release tag (e.g., "v2.11.6" or "latest").
    */

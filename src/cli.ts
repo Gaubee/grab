@@ -1,5 +1,5 @@
 /**
- * @fileoverview CLI-First implementation
+ * @fileoverview CLI-First implementation with subcommands
  *
  * New CLI design principles:
  * 1. Zero-config: `grab <repo>` should work
@@ -19,20 +19,21 @@ import {
   detectArch,
   normalizePlatform,
   normalizeArch,
-  getPlatformDescription,
   type Platform,
   type Architecture
 } from "./utils/platform-detect";
 import { buildAssetPattern } from "./utils/asset-matcher";
-import { buildBuiltinPlugins, isArchive, guessBinaryName } from "./utils/builtin-plugins";
+import { buildBuiltinPlugins, guessBinaryName } from "./utils/builtin-plugins";
 import type { Asset } from "./core/types";
+
+// Import subcommands
+import { listCommand } from "./commands/list";
+import { initCommand } from "./commands/init";
+import { cacheCommand } from "./commands/cache";
+import { validateCommand } from "./commands/validate";
 
 /**
  * Parse and validate repository format
- *
- * @param repo - Repository string (owner/name)
- * @returns Validated repo string
- * @throws Error if format is invalid
  */
 function validateRepo(repo: string): string {
   if (!repo) {
@@ -49,119 +50,14 @@ function validateRepo(repo: string): string {
   return repo;
 }
 
-export async function run(argv: string[]) {
-  // 1. Load configuration file (optional)
+/**
+ * Download command handler
+ */
+async function downloadCommand(args: any) {
   const config = await loadConfig();
   const hasConfig = await configFileExists();
 
-  // 2. Parse command line arguments
-  const args = await yargs(hideBin(argv))
-    // Positional argument: repo
-    .command('$0 [repo]', 'Download assets from a GitHub release', (yargs) => {
-      return yargs.positional('repo', {
-        describe: 'GitHub repository (owner/repo)',
-        type: 'string',
-      });
-    })
-    // Platform and architecture
-    .option("platform", {
-      type: "string",
-      alias: "p",
-      description: "Platform (linux, darwin, windows)",
-      choices: ['linux', 'darwin', 'windows', 'macos', 'osx', 'mac', 'win32', 'win'],
-    })
-    .option("arch", {
-      type: "string",
-      alias: "a",
-      description: "Architecture (x64, arm64, x86, arm)",
-      choices: ['x64', 'arm64', 'x86', 'arm', 'amd64', 'x86_64', 'aarch64', '386', 'i386', 'i686'],
-    })
-    // Output options
-    .option("output", {
-      type: "string",
-      alias: "o",
-      description: "Output path for the downloaded file",
-    })
-    .option("extract", {
-      type: "boolean",
-      alias: "e",
-      description: "Auto-extract archives (.zip, .tar.gz)",
-      default: undefined, // Let undefined mean "not specified"
-    })
-    .option("cleanup", {
-      type: "boolean",
-      alias: "c",
-      description: "Delete archive after extraction",
-      default: undefined,
-    })
-    // Matching options
-    .option("name", {
-      type: "string",
-      alias: "n",
-      description: "Exact file name or pattern to match",
-    })
-    // Version options
-    .option("tag", {
-      type: "string",
-      alias: "t",
-      description: "Specify a release tag to download",
-      default: config.tag || "latest",
-    })
-    // UI options
-    .option("interactive", {
-      type: "boolean",
-      alias: "i",
-      description: "Enable interactive TUI mode",
-      default: false,
-    })
-    .option("verbose", {
-      type: "boolean",
-      alias: "v",
-      description: "Show verbose output",
-      default: false,
-    })
-    .option("quiet", {
-      type: "boolean",
-      alias: "q",
-      description: "Suppress all output except errors",
-      default: false,
-    })
-    // Download options
-    .option("mode", {
-      type: "string",
-      alias: "m",
-      description: "Download mode (fetch, wget, curl)",
-      default: "fetch",
-    })
-    .option("skip-download", {
-      type: "boolean",
-      alias: "s",
-      description: "Skip actual download (useful for testing)",
-      default: false,
-    })
-    .option("use-proxy", {
-      type: "boolean",
-      description: "Enable proxy for downloads",
-    })
-    .option("proxy-url", {
-      type: "string",
-      description: "Specify proxy URL template, e.g. https://gh.proxy/{{href}}",
-    })
-    // Help and version
-    .help('h')
-    .alias('h', 'help')
-    .version()
-    .alias('version', 'V')
-    // Examples
-    .example('$0 oven-sh/bun', 'Download bun for current platform')
-    .example('$0 oven-sh/bun -p linux -a x64', 'Download bun for Linux x64')
-    .example('$0 oven-sh/bun -o ./bin/bun --extract', 'Download and extract to ./bin/bun')
-    .example('$0 oven-sh/bun --name "bun-linux-x64.zip"', 'Download specific file')
-    .strict()
-    .argv;
-
-  // 3. Determine the repository
-  // Priority: CLI arg > config file
+  // Determine the repository
   let repo = args.repo || config.repo;
 
   if (!repo) {
@@ -176,11 +72,9 @@ export async function run(argv: string[]) {
     );
   }
 
-  // Validate repo format
   repo = validateRepo(repo);
 
-  // 4. Determine platform and architecture
-  // Priority: CLI args > config > auto-detect
+  // Determine platform and architecture
   let platform: Platform | undefined;
   let arch: Architecture | undefined;
 
@@ -189,7 +83,6 @@ export async function run(argv: string[]) {
   } else if (config.platform) {
     platform = normalizePlatform(config.platform as string);
   } else if (!args.name && !config.name) {
-    // Only auto-detect if not using exact name matching
     platform = detectPlatform();
     if (!args.quiet) {
       console.log(`[grab] Auto-detected platform: ${platform}`);
@@ -201,35 +94,32 @@ export async function run(argv: string[]) {
   } else if (config.arch) {
     arch = normalizeArch(config.arch as string);
   } else if (!args.name && !config.name) {
-    // Only auto-detect if not using exact name matching
     arch = detectArch();
     if (!args.quiet) {
       console.log(`[grab] Auto-detected architecture: ${arch}`);
     }
   }
 
-  // 5. Determine file name pattern
-  // Priority: CLI --name > config.name > platform+arch
+  // Determine file name pattern
   const name = args.name || config.name;
 
-  // 6. Build asset configuration
+  // Build asset configuration
   const assetPattern = buildAssetPattern({ platform, arch, name });
 
-  // 7. Determine output options
-  // Priority: CLI > config > defaults
+  // Determine output options
   const output = args.output || config.output;
   const extract = args.extract !== undefined ? args.extract : (config.extract || false);
   const cleanup = args.cleanup !== undefined ? args.cleanup : (config.cleanup || false);
 
-  // 8. Build plugins
-  let plugins = buildBuiltinPlugins({
+  // Build plugins
+  const plugins = buildBuiltinPlugins({
     extract,
     cleanup,
     output,
     sourcePath: output ? guessBinaryName(repo) : undefined
   });
 
-  // If config has assets with custom plugins, warn about conflict
+  // Warn about config conflicts
   if (config.assets && config.assets.length > 0) {
     console.warn(
       '[grab] Warning: Config file has "assets" field, but CLI mode is being used.\n' +
@@ -237,17 +127,17 @@ export async function run(argv: string[]) {
     );
   }
 
-  // 9. Create asset configuration
+  // Create asset configuration
   const asset: Asset = {
     name: assetPattern,
     plugins,
   };
 
-  // 10. Create provider and downloader
+  // Create provider and downloader
   const provider = new GithubReleaseProvider(repo);
   const doDownload = createDownloader(provider, [asset], config.hooks);
 
-  // 11. Prepare download options
+  // Prepare download options
   const downloadOptions = {
     tag: args.tag,
     skipDownload: args.skipDownload,
@@ -258,17 +148,14 @@ export async function run(argv: string[]) {
     cacheDir: config.cacheDir,
   };
 
-  // 12. Execute download
+  // Execute download
   if (args.interactive) {
-    // Interactive TUI mode
     fetchRender(doDownload, downloadOptions);
   } else {
-    // CLI mode
     await doDownload({
       ...downloadOptions,
       emitter: (state) => {
         if (args.quiet) {
-          // Quiet mode: only show errors
           if (state.status === "failed") {
             console.error(`[grab] Failed: ${state.filename} - ${state.error?.message}`);
           }
@@ -306,6 +193,279 @@ export async function run(argv: string[]) {
       },
     });
   }
+}
+
+export async function run(argv: string[]) {
+  const config = await loadConfig();
+
+  await yargs(hideBin(argv))
+    // Default command: download
+    .command(
+      '$0 [repo]',
+      'Download assets from a GitHub release',
+      (yargs) => {
+        return yargs
+          .positional('repo', {
+            describe: 'GitHub repository (owner/repo)',
+            type: 'string',
+          })
+          // Platform and architecture
+          .option("platform", {
+            type: "string",
+            alias: "p",
+            description: "Platform (linux, darwin, windows)",
+            choices: ['linux', 'darwin', 'windows', 'macos', 'osx', 'mac', 'win32', 'win'],
+          })
+          .option("arch", {
+            type: "string",
+            alias: "a",
+            description: "Architecture (x64, arm64, x86, arm)",
+            choices: ['x64', 'arm64', 'x86', 'arm', 'amd64', 'x86_64', 'aarch64', '386', 'i386', 'i686'],
+          })
+          // Output options
+          .option("output", {
+            type: "string",
+            alias: "o",
+            description: "Output path for the downloaded file",
+          })
+          .option("extract", {
+            type: "boolean",
+            alias: "e",
+            description: "Auto-extract archives (.zip, .tar.gz)",
+            default: undefined,
+          })
+          .option("cleanup", {
+            type: "boolean",
+            alias: "c",
+            description: "Delete archive after extraction",
+            default: undefined,
+          })
+          // Matching options
+          .option("name", {
+            type: "string",
+            alias: "n",
+            description: "Exact file name or pattern to match",
+          })
+          // Version options
+          .option("tag", {
+            type: "string",
+            alias: "t",
+            description: "Specify a release tag to download",
+            default: config.tag || "latest",
+          })
+          // UI options
+          .option("interactive", {
+            type: "boolean",
+            alias: "i",
+            description: "Enable interactive TUI mode",
+            default: false,
+          })
+          .option("verbose", {
+            type: "boolean",
+            alias: "v",
+            description: "Show verbose output",
+            default: false,
+          })
+          .option("quiet", {
+            type: "boolean",
+            alias: "q",
+            description: "Suppress all output except errors",
+            default: false,
+          })
+          // Download options
+          .option("mode", {
+            type: "string",
+            alias: "m",
+            description: "Download mode (fetch, wget, curl)",
+            default: "fetch",
+          })
+          .option("skip-download", {
+            type: "boolean",
+            alias: "s",
+            description: "Skip actual download (useful for testing)",
+            default: false,
+          })
+          .option("use-proxy", {
+            type: "boolean",
+            description: "Enable proxy for downloads",
+          })
+          .option("proxy-url", {
+            type: "string",
+            description: "Specify proxy URL template, e.g. https://gh.proxy/{{href}}",
+          });
+      },
+      async (args) => {
+        await downloadCommand(args);
+      }
+    )
+
+    // list command
+    .command(
+      'list <repo>',
+      'List available assets for a release',
+      (yargs) => {
+        return yargs
+          .positional('repo', {
+            describe: 'GitHub repository (owner/repo)',
+            type: 'string',
+            demandOption: true,
+          })
+          .option('tag', {
+            type: 'string',
+            alias: 't',
+            description: 'Release tag to list (default: latest)',
+            default: 'latest',
+          })
+          .option('json', {
+            type: 'boolean',
+            description: 'Output in JSON format',
+            default: false,
+          })
+          .option('verbose', {
+            type: 'boolean',
+            alias: 'v',
+            description: 'Show verbose output',
+            default: false,
+          });
+      },
+      async (args) => {
+        await listCommand({
+          repo: args.repo,
+          tag: args.tag,
+          json: args.json,
+          verbose: args.verbose,
+        });
+      }
+    )
+
+    // init command
+    .command(
+      'init',
+      'Initialize a grab configuration file',
+      (yargs) => {
+        return yargs
+          .option('template', {
+            type: 'string',
+            description: 'Template to use (simple, multi, advanced)',
+            choices: ['simple', 'multi', 'advanced'],
+            default: 'simple',
+          })
+          .option('force', {
+            type: 'boolean',
+            alias: 'f',
+            description: 'Overwrite existing config file',
+            default: false,
+          })
+          .option('interactive', {
+            type: 'boolean',
+            alias: 'i',
+            description: 'Interactive mode',
+            default: true,
+          });
+      },
+      async (args) => {
+        await initCommand({
+          template: args.template,
+          force: args.force,
+          interactive: args.interactive,
+        });
+      }
+    )
+
+    // cache command
+    .command(
+      'cache',
+      'Manage download cache',
+      (yargs) => {
+        return yargs
+          .option('status', {
+            type: 'boolean',
+            description: 'Show cache status',
+            default: false,
+          })
+          .option('list', {
+            type: 'boolean',
+            alias: 'l',
+            description: 'List all cached items',
+            default: false,
+          })
+          .option('clean', {
+            type: 'boolean',
+            description: 'Clean old cache items',
+            default: false,
+          })
+          .option('clear', {
+            type: 'boolean',
+            description: 'Clear all cache',
+            default: false,
+          })
+          .option('dry-run', {
+            type: 'boolean',
+            description: 'Preview actions without executing',
+            default: false,
+          })
+          .option('max-age', {
+            type: 'number',
+            description: 'Max age in days for --clean',
+            default: 30,
+          });
+      },
+      async (args) => {
+        await cacheCommand({
+          status: args.status,
+          list: args.list,
+          clean: args.clean,
+          clear: args.clear,
+          dryRun: args.dryRun || args['dry-run'],
+          maxAge: args.maxAge || args['max-age'],
+        });
+      }
+    )
+
+    // validate command
+    .command(
+      'validate [config-file]',
+      'Validate grab configuration file',
+      (yargs) => {
+        return yargs
+          .positional('config-file', {
+            describe: 'Path to config file',
+            type: 'string',
+          })
+          .option('verbose', {
+            type: 'boolean',
+            alias: 'v',
+            description: 'Show verbose output',
+            default: false,
+          });
+      },
+      async (args) => {
+        await validateCommand({
+          configPath: args.configFile || args['config-file'],
+          verbose: args.verbose,
+        });
+      }
+    )
+
+    // Global options
+    .help('h')
+    .alias('h', 'help')
+    .version()
+    .alias('version', 'V')
+    .example('$0 oven-sh/bun', 'Download bun for current platform')
+    .example('$0 oven-sh/bun -p linux -a x64', 'Download bun for Linux x64')
+    .example('$0 list oven-sh/bun', 'List available assets')
+    .example('$0 init', 'Initialize configuration file')
+    .example('$0 cache --status', 'Show cache status')
+    .strict()
+    .demandCommand(0, 1)
+    .fail((msg, err, yargs) => {
+      if (err) throw err;
+      console.error(`\x1b[31mError:\x1b[0m ${msg}\n`);
+      console.error(yargs.help());
+      process.exit(1);
+    })
+    .argv;
 }
 
 // Only run if executed directly

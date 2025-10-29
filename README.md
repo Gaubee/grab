@@ -2,6 +2,8 @@
 
 A declarative, CLI-first tool for downloading and processing assets from GitHub Releases.
 
+English | [简体中文](README-zh.md)
+
 ## Quick Start
 
 ### Zero-Config Usage
@@ -52,6 +54,7 @@ npx @gaubee/grab
 ✅ **Resumable downloads** - Automatic resume with Range requests
 ✅ **Hash verification** - Integrity checks with GitHub digests
 ✅ **Interactive TUI** - Optional terminal UI with progress tracking
+✅ **Rich subcommands** - list, init, cache, validate and more
 
 ## Installation
 
@@ -66,6 +69,109 @@ npx @gaubee/grab <repo>
 ```
 
 ## Usage
+
+### Subcommands
+
+#### `grab list` - List Available Assets
+
+List all available assets for a GitHub Release:
+
+```bash
+# List latest version assets
+grab list oven-sh/bun
+
+# List specific version
+grab list oven-sh/bun --tag v1.0.30
+
+# JSON output
+grab list oven-sh/bun --json
+
+# Verbose output (download counts, URLs, release notes)
+grab list oven-sh/bun --verbose
+```
+
+**Options:**
+- `-t, --tag` - Specify release tag (default: latest)
+- `--json` - Output in JSON format
+- `-v, --verbose` - Show detailed information
+
+#### `grab init` - Initialize Configuration
+
+Create a `grab.config.ts` configuration file interactively:
+
+```bash
+# Interactive creation
+grab init
+
+# Use specific template
+grab init --template simple    # Single asset (recommended)
+grab init --template multi     # Multiple assets
+grab init --template advanced  # With hooks and plugins
+
+# Force overwrite existing config
+grab init --force
+```
+
+**Options:**
+- `--template` - Template type (simple/multi/advanced)
+- `-f, --force` - Force overwrite existing config
+- `-i, --interactive` - Interactive mode (default)
+
+#### `grab cache` - Cache Management
+
+Manage download cache:
+
+```bash
+# Show cache status
+grab cache
+grab cache --status
+
+# List all cached items
+grab cache --list
+
+# Clean old cache (older than 30 days)
+grab cache --clean
+
+# Custom max age
+grab cache --clean --max-age 7
+
+# Clear all cache
+grab cache --clear
+
+# Dry run (preview without executing)
+grab cache --clean --dry-run
+```
+
+**Options:**
+- `--status` - Show cache status (default)
+- `-l, --list` - List all cached items
+- `--clean` - Clean old cache
+- `--clear` - Clear all cache
+- `--dry-run` - Preview actions
+- `--max-age` - Max age in days for cleanup (default: 30)
+
+#### `grab validate` - Validate Configuration
+
+Validate `grab.config.ts` configuration file:
+
+```bash
+# Validate default config
+grab validate
+
+# Validate specific file
+grab validate grab.config.ts
+
+# Show detailed info
+grab validate --verbose
+```
+
+**Features:**
+- ✅ Validate configuration syntax and structure
+- ✅ Check required fields
+- ✅ Validate repo format
+- ✅ Validate platform and architecture values
+- ✅ Detect configuration conflicts with warnings
+- ✅ Detailed error location hints
 
 ### Basic Examples
 
@@ -321,7 +427,7 @@ export default {
 
 ```bash
 # Clear cache and retry
-rm -rf node_modules/.cache/grab
+grab cache --clear
 grab oven-sh/bun
 
 # Or disable proxy if enabled
@@ -339,10 +445,20 @@ grab oven-sh/bun --platform linux --arch x64
 
 ```bash
 # List all available assets
-# (Note: This feature is planned for v2.0)
+grab list oven-sh/bun
 
 # Use exact file name
 grab oven-sh/bun --name "bun-linux-x64.zip"
+```
+
+### Check Cache Status
+
+```bash
+# View cache status
+grab cache --status
+
+# List all cached items
+grab cache --list
 ```
 
 ## Examples
